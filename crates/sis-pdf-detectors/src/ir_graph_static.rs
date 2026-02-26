@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::graph_walk::{build_adjacency, reachable_from, ObjRef};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict};
 
@@ -122,7 +122,7 @@ fn find_action_payload_paths(
                 kind: "action_payload_path".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Action path reaches payload".into(),
                 description: format!(
                     "Action object reaches payload-like object {} {}.",
@@ -166,7 +166,7 @@ fn find_orphan_payloads(
                 kind: "orphan_payload_object".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Orphaned payload object".into(),
                 description: format!(
                     "Payload-like object {} {} is not reachable from catalog root.",
@@ -210,7 +210,7 @@ fn find_shadow_payloads(
                 kind: "shadow_payload_chain".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Shadowed payload object".into(),
                 description: format!(
                     "Shadowed object {} {} contains payload-like content.",
@@ -260,7 +260,7 @@ fn find_objstm_payloads(
                     kind: "objstm_action_chain".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Payload in ObjStm".into(),
                     description: format!(
                         "Payload-like object {} {} appears within ObjStm stream span.",

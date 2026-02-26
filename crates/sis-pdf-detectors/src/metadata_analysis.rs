@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfObj};
 
@@ -65,7 +65,7 @@ fn analyze_info_dict(
             kind: "info_dict_oversized".into(),
             severity: Severity::Low,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Oversized Info dictionary".into(),
             description: format!(
                 "/Info dictionary contains {} keys (normal: 5-10). May hide data.",
@@ -136,7 +136,7 @@ fn analyze_info_dict(
             kind: "info_dict_suspicious".into(),
             severity: Severity::Low,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Suspicious Info dictionary content".into(),
             description: format!(
                 "/Info dictionary contains suspicious values or unusual keys: {}",
@@ -179,7 +179,7 @@ fn analyze_xmp_metadata(ctx: &sis_pdf_core::scan::ScanContext, findings: &mut Ve
                             kind: "xmp_oversized".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Strong,
-            impact: None,
+            impact: Impact::Unknown,
                             title: "Oversized XMP metadata".into(),
                             description: format!(
                                 "XMP metadata stream is {} bytes (normal: <10KB). May hide embedded data.",

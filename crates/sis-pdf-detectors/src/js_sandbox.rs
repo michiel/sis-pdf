@@ -133,25 +133,25 @@ fn is_risky_call(name: &str) -> bool {
         || name.eq_ignore_ascii_case("function")
 }
 
-fn impact_for_kind(kind: &str) -> Option<Impact> {
+fn impact_for_kind(kind: &str) -> Impact {
     match kind {
-        "js_payload_non_javascript_format" => Some(Impact::Low),
-        "js_sandbox_exec" => Some(Impact::None),
-        "js_sandbox_skipped" => Some(Impact::None),
-        "js_runtime_unknown_behaviour_pattern" => Some(Impact::Low),
-        "js_runtime_error_recovery_patterns" => Some(Impact::Low),
-        "js_runtime_dormant_or_gated_execution" => Some(Impact::Medium),
-        "js_runtime_downloader_pattern" => Some(Impact::Critical),
-        "js_runtime_network_intent" => Some(Impact::High),
-        "js_runtime_file_probe" => Some(Impact::Low),
-        "js_runtime_risky_calls" => Some(Impact::Medium),
-        "js_runtime_heap_manipulation" => Some(Impact::Medium),
-        "js_runtime_path_morphism" => Some(Impact::High),
-        "js_sandbox_timeout" => Some(Impact::None),
-        "js_runtime_recursion_limit" => Some(Impact::Low),
-        "js_emulation_breakpoint" => Some(Impact::Low),
-        value if value.starts_with("js_runtime_") => Some(Impact::Medium),
-        _ => Some(Impact::None),
+        "js_payload_non_javascript_format" => Impact::Low,
+        "js_sandbox_exec" => Impact::None,
+        "js_sandbox_skipped" => Impact::None,
+        "js_runtime_unknown_behaviour_pattern" => Impact::Low,
+        "js_runtime_error_recovery_patterns" => Impact::Low,
+        "js_runtime_dormant_or_gated_execution" => Impact::Medium,
+        "js_runtime_downloader_pattern" => Impact::Critical,
+        "js_runtime_network_intent" => Impact::High,
+        "js_runtime_file_probe" => Impact::Low,
+        "js_runtime_risky_calls" => Impact::Medium,
+        "js_runtime_heap_manipulation" => Impact::Medium,
+        "js_runtime_path_morphism" => Impact::High,
+        "js_sandbox_timeout" => Impact::None,
+        "js_runtime_recursion_limit" => Impact::Low,
+        "js_emulation_breakpoint" => Impact::Low,
+        value if value.starts_with("js_runtime_") => Impact::Medium,
+        _ => Impact::None,
     }
 }
 

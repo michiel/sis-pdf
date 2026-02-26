@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::{BTreeSet, HashSet};
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::typed_graph::{EdgeType, TypedEdge};
@@ -178,7 +178,7 @@ impl Detector for SupplyChainDetector {
                             Severity::Medium
                         },
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Staged payload delivery".into(),
                         description: "JavaScript indicates download or staged payload execution."
                             .into(),
@@ -249,7 +249,7 @@ impl Detector for SupplyChainDetector {
                         } else {
                             Confidence::Probable
                         },
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Staged remote template fetch (unresolved bridge)".into(),
                         description: "JavaScript indicates remote template or form-fetch behaviour, but a concrete execution bridge is not yet resolved.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -286,7 +286,7 @@ impl Detector for SupplyChainDetector {
                         kind: "supply_chain_update_vector".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Heuristic,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Update mechanism references".into(),
                         description: "JavaScript references update or installer logic.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -326,7 +326,7 @@ impl Detector for SupplyChainDetector {
                         kind: "supply_chain_persistence".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Persistence-related JavaScript".into(),
                         description: "JavaScript references persistence-like viewer hooks.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -361,7 +361,7 @@ impl Detector for SupplyChainDetector {
                 kind: "supply_chain_staged_payload".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Heuristic,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Action targets indicate staged payloads".into(),
                 description: "Action targets reference external resources or files without JavaScript payloads.".into(),
                 objects: vec!["action_targets".into()],

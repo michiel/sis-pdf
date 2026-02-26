@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfStream};
 use std::collections::BTreeSet;
@@ -58,7 +58,7 @@ impl Detector for ICCProfileDetector {
                             kind: "icc_profile_oversized".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "Oversized ICC profile".into(),
                             description: format!(
                                 "ICC profile decoded to {} bytes, exceeding the expected size bound (1048576 bytes).",
@@ -122,7 +122,7 @@ impl Detector for ICCProfileDetector {
                             kind: "icc_profile_anomaly".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "ICC profile header anomaly".into(),
                             description,
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],

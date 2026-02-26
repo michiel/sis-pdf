@@ -1,5 +1,5 @@
 use sis_pdf_core::chain_synth::synthesise_chains;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use std::collections::{HashMap, HashSet};
 
 #[derive(serde::Deserialize)]
@@ -32,7 +32,7 @@ fn load_fixture(path: &str) -> Vec<Finding> {
             kind: fixture.kind,
             severity: parse_severity(&fixture.severity),
             confidence: parse_confidence(&fixture.confidence),
-            impact: None,
+            impact: Impact::Unknown,
             title: "fixture".to_string(),
             description: "fixture".to_string(),
             objects: fixture.objects,

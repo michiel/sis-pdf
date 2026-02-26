@@ -511,7 +511,7 @@ pub fn structural_complexity_summary_finding(ctx: &ScanContext<'_>) -> Finding {
         kind: "structural_complexity_summary".into(),
         severity: Severity::Info,
         confidence: Confidence::Certain,
-        impact: Some(Impact::None),
+        impact: Impact::None,
         title: "Structural complexity summary".into(),
         description: format!(
             "Structural complexity: {trailer_count} trailers, {xref_section_count} xref sections, {revision_count} revisions, {detached_objects} detached objects."

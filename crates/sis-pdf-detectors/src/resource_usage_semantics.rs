@@ -124,7 +124,7 @@ impl Detector for ResourceUsageSemanticsDetector {
                     kind: "resource.declared_but_unused".into(),
                     severity,
                     confidence,
-                    impact: Some(impact),
+                    impact: impact,
                     title: "Declared resources are unused".into(),
                     description:
                         "Page resources declare fonts or XObjects that were not referenced by content operators."
@@ -157,7 +157,7 @@ impl Detector for ResourceUsageSemanticsDetector {
                     kind: "resource.hidden_invocation_pattern".into(),
                     severity,
                     confidence,
-                    impact: Some(impact),
+                    impact: impact,
                     title: "Hidden resource invocation pattern".into(),
                     description:
                         "XObject invocations occurred while clipping context was active, indicating potentially concealed rendering."
@@ -188,7 +188,7 @@ impl Detector for ResourceUsageSemanticsDetector {
                     kind: "resource.operator_usage_anomalous".into(),
                     severity,
                     confidence,
-                    impact: Some(impact),
+                    impact: impact,
                     title: "Anomalous resource operator usage".into(),
                     description:
                         "Content stream contains unusually high resource invocation volume, which can indicate obfuscation or parser stress behaviour."
@@ -218,7 +218,7 @@ impl Detector for ResourceUsageSemanticsDetector {
                     kind: "resource.inheritance_conflict_font".into(),
                     severity,
                     confidence,
-                    impact: Some(impact),
+                    impact: impact,
                     title: "Font inheritance conflict".into(),
                     description:
                         "Page-local font resources override inherited entries with conflicting targets."
@@ -247,7 +247,7 @@ impl Detector for ResourceUsageSemanticsDetector {
                     kind: "resource.inheritance_conflict_xobject".into(),
                     severity,
                     confidence,
-                    impact: Some(impact),
+                    impact: impact,
                     title: "XObject inheritance conflict".into(),
                     description:
                         "Page-local XObject resources override inherited entries with conflicting targets."
@@ -279,7 +279,7 @@ impl Detector for ResourceUsageSemanticsDetector {
                     kind: "resource.inheritance_override_suspicious".into(),
                     severity,
                     confidence,
-                    impact: Some(impact),
+                    impact: impact,
                     title: "Suspicious resource inheritance override".into(),
                     description:
                         "Page resources override inherited mappings in conflicting ways, which may cause renderer differentials."
@@ -492,7 +492,7 @@ fn find_signature_scope_overrides(ctx: &sis_pdf_core::scan::ScanContext<'_>) -> 
                 kind: "image.override_outside_signature_scope".into(),
                 severity,
                 confidence,
-                impact: Some(impact),
+                impact: impact,
                 title: "Image override outside signature scope".into(),
                 description: "Image object override occurs after signature coverage boundary."
                     .into(),
@@ -517,7 +517,7 @@ fn find_signature_scope_overrides(ctx: &sis_pdf_core::scan::ScanContext<'_>) -> 
                 kind: "font.override_outside_signature_scope".into(),
                 severity,
                 confidence,
-                impact: Some(impact),
+                impact: impact,
                 title: "Font override outside signature scope".into(),
                 description: "Font object override occurs after signature coverage boundary."
                     .into(),
@@ -542,7 +542,7 @@ fn find_signature_scope_overrides(ctx: &sis_pdf_core::scan::ScanContext<'_>) -> 
                 kind: "resource.override_outside_signature_scope".into(),
                 severity,
                 confidence,
-                impact: Some(impact),
+                impact: impact,
                 title: "Resource override outside signature scope".into(),
                 description:
                     "Object override occurs after signature coverage boundary and may alter rendered semantics."
@@ -660,7 +660,7 @@ fn inline_finding(
         kind: kind.into(),
         severity,
         confidence,
-        impact: Some(impact),
+        impact: impact,
         title: title.into(),
         description: description.into(),
         objects: vec![format!("{obj} {gen} obj")],

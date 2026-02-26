@@ -116,6 +116,11 @@ pub struct ContentStreamStats {
     pub path_op_count: usize,
     pub image_invoke_count: usize,
     pub form_xobject_invoke_count: usize,
+    /// Maximum observed nesting depth of `Do` operator invocations targeting Form XObjects
+    /// within this stream. A flat call counts as depth 1; a Do inside a Form XObject stream
+    /// that also calls Do would be depth 2 (tracked across streams by callers).
+    /// Set to `form_xobject_invoke_count` when only single-stream analysis is performed.
+    pub do_call_depth: usize,
     pub graphics_state_depth_max: usize,
     pub marked_content_depth_max: usize,
     /// Resource keys of all fonts referenced (e.g. `["/F1", "/F2"]`).
@@ -370,7 +375,11 @@ impl<'a> Summariser<'a> {
                         let subtype = target_ref.and_then(|r| self.xobject_subtype(r));
                         match subtype.as_deref() {
                             Some("Image") => self.stats.image_invoke_count += 1,
-                            Some("Form") => self.stats.form_xobject_invoke_count += 1,
+                            Some("Form") => {
+                                self.stats.form_xobject_invoke_count += 1;
+                                self.stats.do_call_depth =
+                                    self.stats.form_xobject_invoke_count;
+                            }
                             _ => {}
                         }
                         if !self.stats.unique_xobjects.contains(&resource_name) {

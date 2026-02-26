@@ -252,7 +252,7 @@ fn richmedia_presence_uses_conservative_viewer_dependent_metadata() {
         .find(|entry| entry.kind == "richmedia_present")
         .expect("richmedia_present finding");
     assert_eq!(finding.severity, sis_pdf_core::model::Severity::Low);
-    assert_eq!(finding.impact, Some(sis_pdf_core::model::Impact::Low));
+    assert_eq!(finding.impact, sis_pdf_core::model::Impact::Low);
     assert_eq!(finding.meta.get("viewer.feature").map(String::as_str), Some("richmedia"));
     assert_eq!(
         finding.meta.get("renderer.precondition").map(String::as_str),

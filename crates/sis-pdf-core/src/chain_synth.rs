@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
+use tracing::warn;
 
 use crate::chain::{ChainTemplate, ExploitChain};
 use crate::chain_render::{compose_chain_narrative, render_path};
@@ -104,6 +105,20 @@ pub fn synthesise_chains(
             instances: Vec::new(),
         });
         entry.instances.push(c.id.clone());
+    }
+
+    // Validate that all finding IDs referenced by chains exist in the input.
+    let finding_ids: HashSet<&str> = findings.iter().map(|f| f.id.as_str()).collect();
+    for chain in &chains {
+        for fid in &chain.findings {
+            if !finding_ids.contains(fid.as_str()) {
+                warn!(
+                    chain_id = %chain.id,
+                    missing_finding = %fid,
+                    "chain references unknown finding id"
+                );
+            }
+        }
     }
 
     (chains, templates.into_values().collect())

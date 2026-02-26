@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::graph_walk::ObjRef;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_pdf::object::PdfAtom;
 
 pub struct ObjectReferenceCycleDetector;
@@ -75,7 +75,7 @@ impl Detector for ObjectReferenceCycleDetector {
                     Severity::Medium
                 },
                 confidence: Confidence::Strong,
-            impact: None,
+            impact: Impact::Unknown,
                 title: format!("Excessive reference depth: {} levels", max_depth),
                 description: format!(
                     "Object reference depth of {} exceeds reasonable threshold (20). May cause stack overflow.",
@@ -272,7 +272,7 @@ fn detect_cycles_from(
             kind: "object_reference_cycle".into(),
             severity,
             confidence: Confidence::Strong,
-            impact: None,
+            impact: Impact::Unknown,
             title,
             description,
             objects: cycle_objects,

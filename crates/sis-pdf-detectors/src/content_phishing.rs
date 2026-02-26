@@ -3,7 +3,7 @@ use sis_pdf_core::time_compat::Instant;
 
 use sis_pdf_core::content_index::build_content_index;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfObj};
 
@@ -105,7 +105,7 @@ impl Detector for ContentPhishingDetector {
                 kind: "content_phishing".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Heuristic,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Potential phishing content".into(),
                 description: "Detected phishing-like keywords alongside external URI actions."
                     .into(),
@@ -158,7 +158,7 @@ fn maybe_push_runtime_hotspot(
         kind: "content_phishing_runtime_hotspot".into(),
         severity: Severity::Info,
         confidence: Confidence::Strong,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Content phishing detector runtime hotspot".into(),
         description:
             "content_phishing detector exceeded runtime hotspot threshold; inspect timing breakdown metadata."
@@ -256,7 +256,7 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
                     kind: "content_html_payload".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Heuristic,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "HTML-like payload in content".into(),
                     description: "Content contains HTML or javascript-like sequences.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -291,7 +291,7 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
             kind: "content_html_payload".into(),
             severity: Severity::Low,
             confidence: Confidence::Heuristic,
-            impact: None,
+            impact: Impact::Unknown,
             title: "HTML-like payload in content".into(),
             description:
                 "Decoded stream text contains script/HTML-like sequences rendered via text operators."
@@ -386,7 +386,7 @@ impl Detector for ContentDeceptionDetector {
                     kind: "content_image_only_page".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Heuristic,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Image-only page".into(),
                     description: "Page content contains images without detectable text.".into(),
                     objects: vec![format!("{} {} obj", page.obj, page.gen)],
@@ -412,7 +412,7 @@ impl Detector for ContentDeceptionDetector {
                     kind: "content_invisible_text".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Heuristic,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Invisible text rendering".into(),
                     description: "Content stream suggests invisible text rendering mode.".into(),
                     objects: vec![format!("{} {} obj", page.obj, page.gen)],
@@ -438,7 +438,7 @@ impl Detector for ContentDeceptionDetector {
                     kind: "content_overlay_link".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Heuristic,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Potential overlay link".into(),
                     description: "Page combines image content with URI annotations.".into(),
                     objects: vec![format!("{} {} obj", page.obj, page.gen)],

@@ -109,7 +109,7 @@ impl Detector for StructuralAnomaliesDetector {
                             kind: "pdf.trailer_inconsistent".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Strong,
-                            impact: Some(Impact::Medium),
+                            impact: Impact::Medium,
                             title: "Trailer /Size disagrees with parsed objects".into(),
                             description: format!(
                                 "Trailer {} declares /Size {} but parser saw {} objects.",
@@ -144,7 +144,7 @@ impl Detector for StructuralAnomaliesDetector {
                             kind: "pdf.trailer_size_noncanonical".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Strong,
-                            impact: Some(Impact::Low),
+                            impact: Impact::Low,
                             title: "Trailer /Size is non-canonical".into(),
                             description: format!(
                                 "Trailer {} declares /Size {}, but canonical value from highest object id is {}.",
@@ -182,7 +182,7 @@ impl Detector for StructuralAnomaliesDetector {
                     kind: "xref_start_offset_oob".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-                    impact: Some(Impact::Medium),
+                    impact: Impact::Medium,
                     title: "Startxref offset out of file bounds".into(),
                     description: format!(
                         "startxref[{}] = {} is beyond file length {}.",
@@ -224,7 +224,7 @@ impl Detector for StructuralAnomaliesDetector {
                 kind: "empty_objstm_padding".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
-                impact: Some(Impact::Low),
+                impact: Impact::Low,
                 title: "Sparse ObjStm padding detected".into(),
                 description:
                     "One or more object streams declare many embedded objects but contain little or no expanded content."
@@ -289,7 +289,7 @@ impl Detector for StructuralAnomaliesDetector {
                 kind: "xref_phantom_entries".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
-                impact: Some(Impact::Low),
+                impact: Impact::Low,
                 title: "Xref phantom entries detected".into(),
                 description:
                     "Xref deviations indicate offsets or trailer references that do not resolve cleanly."
@@ -332,7 +332,7 @@ impl Detector for StructuralAnomaliesDetector {
                 kind: "trailer_root_conflict".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Strong,
-                impact: Some(Impact::Low),
+                impact: Impact::Low,
                 title: "Conflicting trailer /Root references".into(),
                 description: "Multiple xref sections declare different trailer /Root references."
                     .into(),
@@ -368,7 +368,7 @@ impl Detector for StructuralAnomaliesDetector {
                     kind: "null_object_density".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
-                    impact: Some(Impact::Low),
+                    impact: Impact::Low,
                     title: "High null object density".into(),
                     description:
                         "Object graph contains an unusually high density of null placeholder objects."
@@ -408,7 +408,7 @@ impl Detector for StructuralAnomaliesDetector {
                 kind: "structural_decoy_objects_scan_limited".into(),
                 severity: Severity::Info,
                 confidence: Confidence::Strong,
-                impact: Some(Impact::None),
+                impact: Impact::None,
                 title: "Structural decoy scan limited".into(),
                 description:
                     "Decoy object reachability scan was skipped because object count exceeded the configured cap."
@@ -475,7 +475,7 @@ impl Detector for StructuralAnomaliesDetector {
                             kind: "structural_decoy_objects".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Probable,
-                            impact: Some(Impact::Low),
+                            impact: Impact::Low,
                             title: "Unreachable decoy object cluster".into(),
                             description:
                                 "A substantial set of non-null objects is unreachable from the catalog root."
@@ -530,7 +530,7 @@ impl Detector for StructuralAnomaliesDetector {
                 kind: "structural_evasion_composite".into(),
                 severity,
                 confidence,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "Composite structural evasion pattern".into(),
                 description: format!(
                     "Detected {} structural evasion indicators in the same document.",

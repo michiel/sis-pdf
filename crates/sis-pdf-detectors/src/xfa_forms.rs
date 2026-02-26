@@ -127,7 +127,7 @@ impl Detector for XfaFormDetector {
                         kind: "xfa_too_large".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "XFA content exceeds size limit".into(),
                         description: "XFA content size exceeds the configured threshold.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -183,13 +183,13 @@ impl Detector for XfaFormDetector {
                         } else {
                             Confidence::Probable
                         },
-                        impact: Some(if ingest_risk == "high" {
+                        impact: if ingest_risk == "high" {
                             Impact::High
                         } else if ingest_risk == "medium" {
                             Impact::Medium
                         } else {
                             Impact::Low
-                        }),
+                        },
                         title: "XFA XML entity-resolution risk".into(),
                         description: "XFA payload includes XML DTD/entity or external-reference constructs that can increase backend ingest risk when parser hardening is not enforced.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -211,7 +211,7 @@ impl Detector for XfaFormDetector {
                         kind: "xfa_backend_xxe_pattern".into(),
                         severity: Severity::High,
                         confidence: Confidence::Strong,
-                        impact: Some(Impact::High),
+                        impact: Impact::High,
                         title: "XFA backend XXE pattern".into(),
                         description: "XFA payload contains external XML entity declarations consistent with backend XXE-style ingestion risk patterns.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -255,7 +255,7 @@ impl Detector for XfaFormDetector {
                         kind: "xfa_submit".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "XFA submit action present".into(),
                         description: format!(
                             "XFA submit target {} (scheme={}, domain={}, external={}).",
@@ -287,7 +287,7 @@ impl Detector for XfaFormDetector {
                         kind: "xfa_sensitive_field".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "XFA sensitive field present".into(),
                         description: "XFA form contains a sensitive field name.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -308,7 +308,7 @@ impl Detector for XfaFormDetector {
                         kind: "xfa_script_count_high".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "XFA script count high".into(),
                         description: "XFA contains an unusually high number of script blocks."
                             .into(),

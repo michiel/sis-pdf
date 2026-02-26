@@ -126,7 +126,7 @@ impl Detector for ShadowAttackDetector {
                 } else {
                     Confidence::Tentative
                 },
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Shadow hide attack indicators".into(),
                 description:
                     "Post-signature revision added overlay annotation/form appearances that can obscure signed content."
@@ -173,7 +173,7 @@ impl Detector for ShadowAttackDetector {
                 } else {
                     Confidence::Probable
                 },
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Shadow replace attack indicators".into(),
                 description:
                     "Post-signature revision changed page/content object semantics compared with the signed revision."
@@ -216,7 +216,7 @@ impl Detector for ShadowAttackDetector {
                 } else {
                     Confidence::Probable
                 },
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Shadow hide-and-replace attack indicators".into(),
                 description:
                     "Post-signature revision combines overlay additions with content replacement, consistent with hide-and-replace tampering."
@@ -557,7 +557,7 @@ fn build_certified_doc_finding(
         kind: "certified_doc_manipulation".into(),
         severity,
         confidence,
-        impact: Some(Impact::High),
+        impact: Impact::High,
         title: "Certified document manipulation indicators".into(),
         description: "Certified document received post-certification visual updates (annotation/signature overlays) inconsistent with DocMDP permissions or analyst trust expectations.".into(),
         objects,
@@ -587,7 +587,7 @@ fn extract_certification_policy(
 
     if let Some(catalog) = catalog_object_dict(ctx) {
         if let Some((_, perms_obj)) = catalog.get_first(b"/Perms") {
-            if let Some(perms_dict) = resolve_dict(ctx, perms_obj) {
+            if let Some(perms_dict) = ctx.graph.resolve_to_dict(perms_obj) {
                 if let Some((_, docmdp_obj)) = perms_dict.get_first(b"/DocMDP") {
                     if let Some(signature_entry) = ctx.graph.resolve_ref(docmdp_obj) {
                         if signature_entry.full_span.start < signature_boundary {
@@ -659,14 +659,14 @@ fn extract_docmdp_permission_from_signature(
         return None;
     };
     for reference in reference_items {
-        let Some(reference_dict) = resolve_dict(ctx, reference) else {
+        let Some(reference_dict) = ctx.graph.resolve_to_dict(reference) else {
             continue;
         };
         if !reference_dict.has_name(b"/TransformMethod", b"/DocMDP") {
             continue;
         }
         let (_, transform_obj) = reference_dict.get_first(b"/TransformParams")?;
-        let Some(transform_dict) = resolve_dict(ctx, transform_obj) else {
+        let Some(transform_dict) = ctx.graph.resolve_to_dict(transform_obj) else {
             continue;
         };
         if let Some((_, p_obj)) = transform_dict.get_first(b"/P") {
@@ -678,22 +678,6 @@ fn extract_docmdp_permission_from_signature(
         }
     }
     None
-}
-
-fn resolve_dict<'a>(
-    ctx: &'a sis_pdf_core::scan::ScanContext<'a>,
-    obj: &PdfObj<'a>,
-) -> Option<PdfDict<'a>> {
-    match &obj.atom {
-        PdfAtom::Dict(dict) => Some(dict.clone()),
-        PdfAtom::Stream(stream) => Some(stream.dict.clone()),
-        PdfAtom::Ref { .. } => ctx.graph.resolve_ref(obj).and_then(|entry| match &entry.atom {
-            PdfAtom::Dict(dict) => Some(dict.clone()),
-            PdfAtom::Stream(stream) => Some(stream.dict.clone()),
-            _ => None,
-        }),
-        _ => None,
-    }
 }
 
 fn is_signature_dict(dict: &PdfDict<'_>) -> bool {

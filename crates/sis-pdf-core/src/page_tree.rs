@@ -35,7 +35,7 @@ pub fn build_page_tree(graph: &ObjectGraph<'_>) -> PageTree {
     let mut annot_parent = HashMap::new();
     let mut seen = HashSet::new();
     let root = graph.trailers.last().and_then(|t| t.get_first(b"/Root")).map(|(_, v)| v.clone());
-    let catalog = root.as_ref().and_then(|o| resolve_dict(graph, o));
+    let catalog = root.as_ref().and_then(|o| graph.resolve_to_dict(o));
     let pages_ref = catalog.as_ref().and_then(|d| d.get_first(b"/Pages")).map(|(_, v)| v.clone());
     if let Some(pages_obj) = pages_ref {
         walk_pages(graph, &pages_obj, None, &mut pages, &mut annot_parent, &mut seen, 0);
@@ -152,7 +152,7 @@ fn walk_pages(
         }
     }
 
-    let dict = match resolve_dict(graph, obj) {
+    let dict = match graph.resolve_to_dict(obj) {
         Some(d) => d,
         None => return,
     };
@@ -191,19 +191,6 @@ fn walk_pages(
     }
 }
 
-fn resolve_dict<'a>(graph: &'a ObjectGraph<'a>, obj: &PdfObj<'a>) -> Option<PdfDict<'a>> {
-    match &obj.atom {
-        PdfAtom::Dict(d) => Some(d.clone()),
-        PdfAtom::Ref { .. } => graph.resolve_ref(obj).and_then(|e| match &e.atom {
-            PdfAtom::Dict(d) => Some(d.clone()),
-            PdfAtom::Stream(st) => Some(st.dict.clone()),
-            _ => None,
-        }),
-        PdfAtom::Stream(st) => Some(st.dict.clone()),
-        _ => None,
-    }
-}
-
 fn object_id_from_obj(graph: &ObjectGraph<'_>, obj: &PdfObj<'_>) -> Option<(u32, u16)> {
     match obj.atom {
         PdfAtom::Ref { obj, gen } => Some((obj, gen)),
@@ -212,6 +199,140 @@ fn object_id_from_obj(graph: &ObjectGraph<'_>, obj: &PdfObj<'_>) -> Option<(u32,
             graph.objects.iter().find(|e| e.body_span.start == span_start).map(|e| (e.obj, e.gen))
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sis_pdf_pdf::graph::{parse_pdf, ParseOptions};
+
+    /// Build a minimal PDF bytes with `depth` nested `/Pages` nodes followed by a
+    /// single `/Page` leaf. Used to stress-test the depth guard in `walk_pages`.
+    fn build_deep_page_tree_pdf(depth: usize) -> Vec<u8> {
+        // Object layout (1-indexed):
+        //   1 0 obj: Catalog  (/Root 2 0 R)
+        //   2 0 obj: Root Pages (/Kids [3 0 R])
+        //   3 0 obj: Level-2 Pages (/Kids [4 0 R])
+        //   ...
+        //   (depth+1) 0 obj: Deepest Pages (/Kids [(depth+2) 0 R])
+        //   (depth+2) 0 obj: Leaf /Page
+        //
+        // Total objects: depth + 2
+        let total_objects = depth + 2;
+        let mut offsets: Vec<usize> = vec![0; total_objects + 1]; // 1-indexed
+        let mut buf: Vec<u8> = Vec::new();
+
+        buf.extend_from_slice(b"%PDF-1.4\n");
+
+        // Catalog
+        offsets[1] = buf.len();
+        buf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+
+        // Pages nodes: objects 2 through (depth + 1), each pointing to the next
+        for i in 2..=(depth + 1) {
+            let next = i + 1;
+            offsets[i] = buf.len();
+            let entry = format!(
+                "{i} 0 obj\n<< /Type /Pages /Kids [{next} 0 R] /Count 1 >>\nendobj\n"
+            );
+            buf.extend_from_slice(entry.as_bytes());
+        }
+
+        // Leaf Page
+        let leaf = depth + 2;
+        let parent = depth + 1;
+        offsets[leaf] = buf.len();
+        let entry = format!(
+            "{leaf} 0 obj\n<< /Type /Page /Parent {parent} 0 R /MediaBox [0 0 612 792] >>\nendobj\n"
+        );
+        buf.extend_from_slice(entry.as_bytes());
+
+        // xref table
+        let xref_offset = buf.len();
+        let header = format!("xref\n0 {}\n", total_objects + 1);
+        buf.extend_from_slice(header.as_bytes());
+        buf.extend_from_slice(b"0000000000 65535 f \n");
+        for i in 1..=total_objects {
+            let line = format!("{:010} 00000 n \n", offsets[i]);
+            buf.extend_from_slice(line.as_bytes());
+        }
+
+        // Trailer
+        let trailer = format!(
+            "trailer\n<< /Size {sz} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            sz = total_objects + 1,
+            xref = xref_offset,
+        );
+        buf.extend_from_slice(trailer.as_bytes());
+        buf
+    }
+
+    fn default_parse_opts(max_objects: usize) -> ParseOptions {
+        ParseOptions {
+            recover_xref: true,
+            deep: false,
+            strict: false,
+            max_objstm_bytes: 1024 * 1024,
+            max_objects,
+            max_objstm_total_bytes: 1024 * 1024,
+            carve_stream_objects: false,
+            max_carved_objects: 0,
+            max_carved_bytes: 0,
+        }
+    }
+
+    #[test]
+    fn annotation_parent_map_handles_deep_page_tree_without_panic() {
+        // Use depth 130, which exceeds MAX_PAGE_TREE_DEPTH (128), to verify the
+        // depth guard terminates traversal gracefully rather than stack-overflowing.
+        let bytes = build_deep_page_tree_pdf(130);
+        let opts = default_parse_opts(10_000);
+        let graph = parse_pdf(&bytes, opts).expect("parse should succeed");
+        // Should return without panic; map may be empty (no annotations in fixture).
+        let map = build_annotation_parent_map(&graph);
+        // The leaf page has no /Annots, so the map must be empty.
+        assert!(map.is_empty(), "expected empty annotation parent map for a page-only fixture");
+    }
+
+    #[test]
+    fn annotation_parent_map_handles_cyclic_page_tree_without_panic() {
+        // Build a PDF where object 2 is a /Pages node with /Kids pointing to itself
+        // (obj 2). The cycle detector should terminate traversal immediately.
+        let mut buf: Vec<u8> = Vec::new();
+        buf.extend_from_slice(b"%PDF-1.4\n");
+
+        let mut offsets = [0usize; 4]; // indices 1..=3
+
+        // Catalog
+        offsets[1] = buf.len();
+        buf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+
+        // Cyclic Pages: /Kids points back to itself
+        offsets[2] = buf.len();
+        buf.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [2 0 R] /Count 1 >>\nendobj\n");
+
+        // Dummy object to make the xref well-formed
+        offsets[3] = buf.len();
+        buf.extend_from_slice(b"3 0 obj\nnull\nendobj\n");
+
+        let xref_offset = buf.len();
+        buf.extend_from_slice(b"xref\n0 4\n");
+        buf.extend_from_slice(b"0000000000 65535 f \n");
+        for i in 1..=3 {
+            let line = format!("{:010} 00000 n \n", offsets[i]);
+            buf.extend_from_slice(line.as_bytes());
+        }
+        buf.extend_from_slice(
+            format!("trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n")
+                .as_bytes(),
+        );
+
+        let opts = default_parse_opts(1_000);
+        let graph = parse_pdf(&buf, opts).expect("parse should succeed");
+        // Should return without panic; cycle detection must stop the traversal.
+        let map = build_annotation_parent_map(&graph);
+        assert!(map.is_empty());
     }
 }
 

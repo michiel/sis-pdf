@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::object::PdfAtom;
@@ -36,7 +36,7 @@ impl Detector for FilterChainDepthDetector {
                         kind: "filter_chain_depth_high".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Deep filter chain".into(),
                         description: format!(
                             "Stream uses {} filters: {}.",

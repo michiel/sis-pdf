@@ -195,7 +195,7 @@ fn add_structural_deltas(label: &str, prev: &Report, current: &Report, deltas: &
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Confidence;
+    use crate::model::{Confidence, Impact};
     use crate::report::Report;
     use crate::scan::{
         CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat,
@@ -289,7 +289,7 @@ mod tests {
             kind: "low_signal".to_string(),
             severity: Severity::Low,
             confidence: Confidence::Heuristic,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Low".to_string(),
             description: "test".to_string(),
             objects: vec![],
@@ -309,7 +309,7 @@ mod tests {
             kind: "high_signal".to_string(),
             severity: Severity::High,
             confidence: Confidence::Strong,
-            impact: None,
+            impact: Impact::Unknown,
             title: "High".to_string(),
             description: "test".to_string(),
             objects: vec![],

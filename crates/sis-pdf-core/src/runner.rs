@@ -8,7 +8,7 @@ use crate::correlation;
 use crate::evidence::preview_ascii;
 use crate::finding_caps::apply_default_global_kind_cap;
 use crate::graph_walk::{build_adjacency, reachable_from, ObjRef};
-use crate::model::{AttackSurface, Confidence, Finding, Severity};
+use crate::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use crate::position;
 use crate::profiler::{DocumentInfo, Profiler};
 #[cfg(feature = "ml-graph")]
@@ -269,7 +269,7 @@ pub fn run_scan_with_detectors(
                                                     kind: "detector_execution_failed".into(),
                                                     severity: Severity::Medium,
                                                     confidence: Confidence::Strong,
-                                                    impact: Some(crate::model::Impact::Medium),
+                                                    impact: crate::model::Impact::Medium,
                                                     title: "Detector execution failed".into(),
                                                     description: format!(
                                                         "Detector '{}' failed during parallel execution: {}",
@@ -379,7 +379,7 @@ pub fn run_scan_with_detectors(
             kind: "object_count_exceeded".into(),
             severity: crate::model::Severity::Medium,
             confidence: crate::model::Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Object count exceeds budget".into(),
             description: format!(
                 "Object count {} exceeds configured budget {}.",
@@ -437,7 +437,7 @@ pub fn run_scan_with_detectors(
             kind: "js_font_exploitation".into(),
             severity: crate::model::Severity::High,
             confidence: crate::model::Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Font exploitation chain suspected".into(),
             description: "JavaScript findings coincide with suspicious embedded fonts.".into(),
             objects: vec!["fonts".into(), "javascript".into()],
@@ -511,7 +511,7 @@ pub fn run_scan_with_detectors(
                                 kind: "ml_malware_score_high".into(),
                                 severity: crate::model::Severity::High,
                                 confidence: crate::model::Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "ML classifier score high".into(),
                                 description: format!(
                                     "Stacking classifier scored {:.4} (threshold {:.4}).",
@@ -542,7 +542,7 @@ pub fn run_scan_with_detectors(
                             kind: "ml_model_error".into(),
                             severity: crate::model::Severity::Low,
                             confidence: crate::model::Confidence::Heuristic,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "ML model load failed".into(),
                             description: format!("Failed to load ML model: {}", err),
                             objects: vec!["ml".into()],
@@ -567,7 +567,7 @@ pub fn run_scan_with_detectors(
                         kind: "ml_adversarial_suspected".into(),
                         severity: crate::model::Severity::Low,
                         confidence: crate::model::Confidence::Heuristic,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Potential adversarial ML sample".into(),
                         description: "Feature profile suggests adversarial manipulation attempts."
                             .into(),
@@ -635,7 +635,7 @@ pub fn run_scan_with_detectors(
                                     kind: "ml_graph_score_high".into(),
                                     severity: crate::model::Severity::High,
                                     confidence: crate::model::Confidence::Probable,
-                                    impact: None,
+                                    impact: Impact::Unknown,
                                     title: "Graph ML classifier score high".into(),
                                     description: format!(
                                         "Graph classifier scored {:.4} (threshold {:.4}).",
@@ -668,7 +668,7 @@ pub fn run_scan_with_detectors(
                                 kind: "ml_model_error".into(),
                                 severity: crate::model::Severity::Low,
                                 confidence: crate::model::Confidence::Heuristic,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "ML model load failed".into(),
                                 description: format!("Graph ML failed: {}", err),
                                 objects: vec!["ml".into()],
@@ -696,7 +696,7 @@ pub fn run_scan_with_detectors(
                         kind: "ml_model_error".into(),
                         severity: crate::model::Severity::Low,
                         confidence: crate::model::Confidence::Heuristic,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "ML graph mode unavailable".into(),
                         description:
                             "Graph ML mode requested but not compiled (enable feature ml-graph)."
@@ -976,7 +976,7 @@ fn correlate_font_js(findings: &mut Vec<Finding>) {
             kind: "pdf.font_js_combined_exploit".into(),
             severity: crate::model::Severity::Critical,
             confidence: crate::model::Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Font and JavaScript combined exploitation pattern".into(),
             description: "Document contains both high-severity font vulnerabilities and JavaScript exploits, suggesting a multi-vector attack.".into(),
             objects: Vec::new(),
@@ -1534,7 +1534,7 @@ fn maybe_record_parser_resource_exhaustion(
         kind: "parser_resource_exhaustion".into(),
         severity: Severity::High,
         confidence: Confidence::Probable,
-        impact: Some(crate::model::Impact::High),
+        impact: crate::model::Impact::High,
         title: "Parser resource exhaustion detected".into(),
         description: format!(
             "The parser spent {}ms re-processing malformed structures. Top contributors: {}. Buckets: {}. Treat it as a possible refusal-of-service attempt.",
@@ -1981,7 +1981,7 @@ pub fn maybe_record_secondary_parser_prevalence_baseline(findings: &mut Vec<Find
         kind: "secondary_parser_prevalence_baseline".into(),
         severity: Severity::Info,
         confidence: Confidence::Strong,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Secondary parser prevalence baseline".into(),
         description: format!(
             "Secondary parser signals={} classes=[{}] hazards=[{}].",
@@ -2344,7 +2344,7 @@ mod tests {
                 kind: "font.type1_blend_exploit".into(),
                 severity: crate::model::Severity::High,
                 confidence: crate::model::Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Font exploit".into(),
                 description: "Test font finding".into(),
                 objects: vec![],
@@ -2363,7 +2363,7 @@ mod tests {
                 kind: "js_malicious_pattern".into(),
                 severity: crate::model::Severity::High,
                 confidence: crate::model::Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "JS exploit".into(),
                 description: "Test JS finding".into(),
                 objects: vec![],
@@ -2408,7 +2408,7 @@ mod tests {
                 kind: "font.type1_large_charstring".into(),
                 severity: crate::model::Severity::Medium,
                 confidence: crate::model::Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Font anomaly".into(),
                 description: "Test font finding".into(),
                 objects: vec![],
@@ -2427,7 +2427,7 @@ mod tests {
                 kind: "js_obfuscation_detected".into(),
                 severity: crate::model::Severity::Medium,
                 confidence: crate::model::Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "JS obfuscation".into(),
                 description: "Test JS obfuscation".into(),
                 objects: vec![],
@@ -2463,7 +2463,7 @@ mod tests {
             kind: "font.type1_excessive_stack".into(),
             severity: crate::model::Severity::Low,
             confidence: crate::model::Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Font anomaly".into(),
             description: "Test font finding".into(),
             objects: vec![],
@@ -3107,7 +3107,7 @@ mod tests {
             kind: kind.into(),
             severity: Severity::Info,
             confidence,
-            impact: None,
+            impact: Impact::Unknown,
             title: kind.into(),
             description: String::new(),
             objects: vec![],

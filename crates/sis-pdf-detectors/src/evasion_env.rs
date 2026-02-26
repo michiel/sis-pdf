@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 
 use crate::js_payload_candidates_from_entry;
@@ -50,7 +50,7 @@ impl Detector for EnvProbeDetector {
                     kind: "js_env_probe".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Environment probe in JavaScript".into(),
                     description: "JavaScript queries viewer or environment properties.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],

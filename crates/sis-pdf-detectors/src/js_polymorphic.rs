@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 
 use crate::js_payload_candidates_from_entry;
@@ -65,7 +65,7 @@ impl Detector for JsPolymorphicDetector {
                         kind: "js_polymorphic".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Polymorphic JavaScript patterns".into(),
                         description: "JavaScript shows traits of polymorphic or staged code."
                             .into(),
@@ -133,7 +133,7 @@ impl Detector for JsPolymorphicDetector {
                             kind: kind.into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Strong,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: title.into(),
                             description: description.into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -192,7 +192,7 @@ impl Detector for JsPolymorphicDetector {
                             kind: kind.into(),
                             severity,
                             confidence,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: title.into(),
                             description: description.into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -222,7 +222,7 @@ impl Detector for JsPolymorphicDetector {
                         kind: "js_multi_stage_decode".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Multi-stage JavaScript decoding".into(),
                         description: "JavaScript contains multiple decoding layers.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -248,7 +248,7 @@ impl Detector for JsPolymorphicDetector {
                         kind: "js_obfuscation_deep".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Heuristic,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Deep JavaScript deobfuscation".into(),
                         description: "Deobfuscation produced a simplified payload variant.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],

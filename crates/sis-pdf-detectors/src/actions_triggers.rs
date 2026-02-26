@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::EvidenceBuilder;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::timeout::TimeoutChecker;
 use sis_pdf_pdf::classification::ClassificationMap;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj, PdfStr};
@@ -76,7 +76,7 @@ impl Detector for ActionTriggerDetector {
                     kind: "action_automatic_trigger".into(),
                     severity,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Automatic action trigger".into(),
                     description: "OpenAction triggers automatically on document open.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -98,7 +98,7 @@ impl Detector for ActionTriggerDetector {
                         kind: "action_chain_complex".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Complex action chain".into(),
                         description: complex_action_chain_description(&complex_meta),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -176,7 +176,7 @@ impl Detector for ActionTriggerDetector {
                                 kind: "action_automatic_trigger".into(),
                                 severity,
                                 confidence: Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "Automatic action trigger".into(),
                                 description:
                                     "Additional action triggers without explicit user interaction."
@@ -202,7 +202,7 @@ impl Detector for ActionTriggerDetector {
                                 kind: "action_chain_complex".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "Complex action chain".into(),
                                 description: complex_action_chain_description(&complex_meta),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -266,7 +266,7 @@ impl Detector for ActionTriggerDetector {
                         kind: "action_hidden_trigger".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Hidden action trigger".into(),
                         description: "Action triggered from a hidden or non-visible annotation."
                             .into(),
@@ -325,7 +325,7 @@ impl Detector for ActionTriggerDetector {
                             kind: "action_hidden_trigger".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "Hidden action trigger".into(),
                             description:
                                 "Form field action triggered from a hidden or non-visible widget."
@@ -353,7 +353,7 @@ impl Detector for ActionTriggerDetector {
                             kind: "action_chain_complex".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "Complex action chain".into(),
                             description: complex_action_chain_description(&complex_meta),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -452,7 +452,7 @@ impl Detector for ActionTriggerDetector {
                                     kind: "acroform_field_action".into(),
                                     severity,
                                     confidence: Confidence::Strong,
-                                    impact: None,
+                                    impact: Impact::Unknown,
                                     title: "AcroForm field JavaScript action".into(),
                                     description: format!(
                                         "Field /AA event {} carries a JavaScript action.",
@@ -480,7 +480,7 @@ impl Detector for ActionTriggerDetector {
                                     kind: "action_automatic_trigger".into(),
                                     severity: Severity::Medium,
                                     confidence: Confidence::Probable,
-                                    impact: None,
+                                    impact: Impact::Unknown,
                                     title: "Automatic action trigger".into(),
                                     description:
                                         "Field actions triggered automatically via /AA entries."
@@ -509,7 +509,7 @@ impl Detector for ActionTriggerDetector {
                                     kind: "action_hidden_trigger".into(),
                                     severity: Severity::Low,
                                     confidence: Confidence::Probable,
-                                    impact: None,
+                                    impact: Impact::Unknown,
                                     title: "Hidden action trigger".into(),
                                     description:
                                         "Hidden form field action triggered without visibility."
@@ -537,7 +537,7 @@ impl Detector for ActionTriggerDetector {
                                     kind: "action_chain_complex".into(),
                                     severity: Severity::Medium,
                                     confidence: Confidence::Probable,
-                                    impact: None,
+                                    impact: Impact::Unknown,
                                     title: "Complex action chain".into(),
                                     description: complex_action_chain_description(&complex_meta),
                                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],

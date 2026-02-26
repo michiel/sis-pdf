@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::graph_walk::ObjRef;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::page_tree::build_page_tree;
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
@@ -149,7 +149,7 @@ fn fallback_pages_root<'a>(
         kind: "page_tree_fallback".into(),
         severity: Severity::Low,
         confidence: Confidence::Heuristic,
-            impact: None,
+            impact: Impact::Unknown,
         title: "Fallback /Pages root".into(),
         description: "Page tree root resolved by scanning the object graph, not by the catalog /Root.".into(),
         objects: vec!["page_tree".into()],

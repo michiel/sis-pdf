@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::dict_int;
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
 use sis_pdf_pdf::blob::Blob;
@@ -571,7 +571,7 @@ impl Detector for ContentFirstDetector {
                 kind: "content_first_analysis_truncated".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Strong,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Content-first analysis truncated".into(),
                 description:
                     "Content-first analysis stopped early after high-risk indicators exceeded configured stream/deep-pass budgets."
@@ -718,7 +718,7 @@ fn content_first_guardrail_finding(
         kind: "content_first_guardrail_applied".into(),
         severity: Severity::Info,
         confidence: Confidence::Strong,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Content-first guardrail applied".into(),
         description:
             "Adaptive guardrail tightened content-first budgets for a timeout-heavy profile.".into(),
@@ -1210,7 +1210,7 @@ fn label_mismatch_finding(
         kind: "label_mismatch_stream_type".to_string(),
         severity,
         confidence: Confidence::Strong,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Stream label mismatch".to_string(),
         description,
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -1259,7 +1259,7 @@ fn validation_failure_finding(
         kind: "content_validation_failed".to_string(),
         severity: Severity::Medium,
         confidence: Confidence::Probable,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Content validation failed".to_string(),
         description: "Stream signature matched, but lightweight validation failed.".to_string(),
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -1299,7 +1299,7 @@ fn validation_failure_span_finding(
         kind: "content_validation_failed".to_string(),
         severity: Severity::Medium,
         confidence: Confidence::Probable,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Content validation failed".to_string(),
         description: "Content signature matched, but lightweight validation failed.".to_string(),
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -1432,7 +1432,7 @@ fn declared_filter_invalid_finding(
         kind: "declared_filter_invalid".to_string(),
         severity: Severity::High,
         confidence,
-        impact: None,
+        impact: Impact::Unknown,
         title: title.to_string(),
         description,
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -1714,7 +1714,7 @@ fn decode_recovered_finding(
         kind: "decode_recovery_used".to_string(),
         severity: Severity::Info,
         confidence: Confidence::Strong,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Decode recovery used".to_string(),
         description: "Recovered stream payload using fallback decoding.".to_string(),
         objects: vec![format!("{} {} obj", obj, gen)],
@@ -1779,7 +1779,7 @@ fn undeclared_compression_finding(
         kind: "undeclared_compression_present".to_string(),
         severity: Severity::High,
         confidence: Confidence::Probable,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Undeclared compression detected".to_string(),
         description: format!(
             "No /Filter is declared (expected plain bytes), but stream bytes look zlib-compressed (signature hint: {}, entropy {:.2}).",
@@ -1971,7 +1971,7 @@ fn carve_payloads(
                 kind: "embedded_payload_carved".to_string(),
                 severity,
                 confidence,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Embedded payload carved".to_string(),
                 description,
                 objects: vec![format!("{} {} obj", obj, gen)],
@@ -2393,7 +2393,7 @@ fn script_payload_findings(
             kind: kind_str.to_string(),
             severity: actual_severity,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: title.to_string(),
             description: description.to_string(),
             objects: vec![format!("{} {} obj", obj, gen)],
@@ -2562,7 +2562,7 @@ fn swf_findings(
             kind: "actionscript_present".to_string(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "ActionScript present".to_string(),
             description: "SWF tags indicate embedded ActionScript bytecode.".to_string(),
             objects: vec![format!("{} {} obj", obj, gen)],
@@ -2586,7 +2586,7 @@ fn swf_findings(
             kind: "swf_url_iocs".to_string(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "SWF URL indicators".to_string(),
             description: "Embedded URLs detected in SWF tag payloads.".to_string(),
             objects: vec![format!("{} {} obj", obj, gen)],
@@ -2802,7 +2802,7 @@ fn zip_container_findings(
                     kind: "nested_container_chain".to_string(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Nested container chain detected".to_string(),
                     description: "ZIP entry contains a nested file signature.".to_string(),
                     objects: vec![format!("{} {} obj", obj, gen)],

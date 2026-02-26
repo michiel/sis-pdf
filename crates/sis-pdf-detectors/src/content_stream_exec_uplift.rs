@@ -83,6 +83,16 @@ impl Detector for ContentStreamExecUpliftDetector {
                     ));
                 }
 
+                if analysis.do_form_invoke_count > MAX_DO_DEPTH {
+                    findings.push(do_depth_finding(
+                        page.obj,
+                        page.gen,
+                        stream_ref.obj_ref,
+                        stream_ref.stream.data_span,
+                        analysis.do_form_invoke_count,
+                    ));
+                }
+
                 if let Some(anomaly_meta) = detect_inline_image_anomaly(&ops) {
                     findings.push(inline_image_anomaly_finding(
                         page.obj,
@@ -111,7 +121,7 @@ impl Detector for ContentStreamExecUpliftDetector {
                         kind: "content_stream_js_literal".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Tentative,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "JavaScript-like literal in content stream".into(),
                         description: "Text rendering operators (Tj/TJ) contain strings \
                             resembling JavaScript. Some advanced payloads embed JS as \
@@ -212,11 +222,17 @@ struct PageContentStreamRef<'a> {
     stream: PdfStream<'a>,
 }
 
+/// Maximum number of `Do` invocations targeting Form XObjects per content stream before
+/// a `content_stream_do_depth_excessive` finding is emitted.
+const MAX_DO_DEPTH: usize = 16;
+
 #[derive(Default)]
 struct OpsAnalysis {
     gstate_max_depth: usize,
     gstate_underflow_count: usize,
     do_sandwich_count: usize,
+    /// Count of `Do` operator invocations that target a Form XObject in this stream.
+    do_form_invoke_count: usize,
     resource_names: Vec<String>,
     marked_candidates: Vec<MarkedCandidate>,
 }
@@ -292,6 +308,7 @@ fn analyse_ops(ops: &[ContentOp], form_xobjects: &HashMap<String, (u32, u16)>) -
             if let Some(name) = first_name(&op.operands) {
                 out.resource_names.push(name.clone());
                 if op.op == "Do" && form_xobjects.contains_key(&name) {
+                    out.do_form_invoke_count += 1;
                     let prev_q =
                         idx.checked_sub(1).and_then(|p| ops.get(p)).is_some_and(|p| p.op == "q");
                     let next_q = ops.get(idx + 1).is_some_and(|n| n.op == "Q");
@@ -386,13 +403,55 @@ fn gstate_finding(
         kind: "content_stream_gstate_abuse".into(),
         severity: Severity::Medium,
         confidence: Confidence::Probable,
-        impact: Some(Impact::Medium),
+        impact: Impact::Medium,
         title: "Content stream graphics-state abuse".into(),
         description: "Content stream exhibits graphics-state depth/underflow anomalies or q-Do-Q form invocation sandwich patterns.".into(),
         objects: vec![format!("{page_obj} {page_gen} obj")],
         evidence: vec![span_to_evidence(span, "Content stream graphics-state sequence")],
         remediation: Some(
             "Review graphics-state stack usage and form XObject invocation patterns for obfuscation.".into(),
+        ),
+        meta,
+        yara: None,
+        positions: Vec::new(),
+        ..Finding::default()
+    }
+}
+
+fn do_depth_finding(
+    page_obj: u32,
+    page_gen: u16,
+    stream_ref: Option<(u32, u16)>,
+    span: sis_pdf_pdf::span::Span,
+    depth: usize,
+) -> Finding {
+    let stream_label = stream_ref
+        .map(|(obj, gen)| format!("{obj} {gen}"))
+        .unwrap_or_else(|| format!("{page_obj} {page_gen}"));
+    let mut meta = HashMap::new();
+    meta.insert("do.max_depth".into(), depth.to_string());
+    meta.insert("stream.obj".into(), stream_label);
+
+    Finding {
+        id: String::new(),
+        surface: AttackSurface::StreamsAndFilters,
+        kind: "content_stream_do_depth_excessive".into(),
+        severity: Severity::Medium,
+        confidence: Confidence::Strong,
+        impact: Impact::Medium,
+        title: "Excessive Form XObject Do invocation depth".into(),
+        description: format!(
+            "Content stream invokes `Do` on Form XObjects {depth} times, \
+             exceeding the safe threshold ({MAX_DO_DEPTH}). \
+             Deep Do chains can be used to exhaust renderer resources or \
+             conceal payloads across many indirection layers."
+        ),
+        objects: vec![format!("{page_obj} {page_gen} obj")],
+        evidence: vec![span_to_evidence(span, "Content stream Do invocation sequence")],
+        remediation: Some(
+            "Inspect Form XObject chain depth; legitimate documents rarely \
+             exceed a handful of Do levels per page."
+                .into(),
         ),
         meta,
         yara: None,
@@ -423,7 +482,7 @@ fn marked_evasion_finding(
         kind: "content_stream_marked_evasion".into(),
         severity: Severity::Medium,
         confidence: Confidence::Tentative,
-        impact: Some(Impact::Medium),
+        impact: Impact::Medium,
         title: "Marked-content evasion pattern".into(),
         description: "Marked-content block concentrates resource invocation operators without visible render operators in a tight boundary.".into(),
         objects: vec![format!("{page_obj} {page_gen} obj")],
@@ -499,7 +558,7 @@ fn resource_name_obfuscation_finding(
         kind: "content_stream_resource_name_obfuscation".into(),
         severity: Severity::Low,
         confidence: Confidence::Tentative,
-        impact: Some(Impact::Low),
+        impact: Impact::Low,
         title: "Resource-name obfuscation in content streams".into(),
         description: "Content stream Do/Tf resource identifiers show high entropy, excessive length, or page-to-page churn patterns.".into(),
         objects: Vec::new(),
@@ -787,7 +846,7 @@ fn inline_image_anomaly_finding(
         kind: "content_stream_inline_image_anomaly".into(),
         severity: Severity::Medium,
         confidence: Confidence::Tentative,
-        impact: Some(Impact::Medium),
+        impact: Impact::Medium,
         title: "Inline image anomaly in content stream".into(),
         description: "Content stream contains inline image data with anomalous size, filter chain, or near-absence of visible render operators.".into(),
         objects: vec![format!("{page_obj} {page_gen} obj")],

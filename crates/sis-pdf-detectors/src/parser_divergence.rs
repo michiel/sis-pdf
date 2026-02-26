@@ -89,7 +89,7 @@ impl Detector for ParserDivergenceDetector {
                 kind: "duplicate_stream_filters".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "Duplicate stream payload with divergent filters".into(),
                 description:
                     "Identical stream payload bytes are present under different filter chains, which can trigger parser-specific decoding behaviour."
@@ -211,7 +211,7 @@ impl Detector for ParserDivergenceDetector {
                     Severity::Low
                 },
                 confidence: Confidence::Probable,
-                impact: Some(Impact::Low),
+                impact: Impact::Low,
                 title: "Content stream syntax anomaly".into(),
                 description,
                 objects: vec![object_ref],
@@ -271,7 +271,7 @@ impl Detector for ParserDivergenceDetector {
                 kind: "parser_divergence_risk".into(),
                 severity,
                 confidence,
-                impact: Some(Impact::High),
+                impact: Impact::High,
                 title: "Parser divergence risk".into(),
                 description:
                     "Multiple divergence indicators suggest the PDF may render differently across readers or parser strictness levels."

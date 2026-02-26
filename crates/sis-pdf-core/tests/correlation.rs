@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use sis_pdf_core::correlation;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::runner::run_scan_with_detectors;
 use sis_pdf_core::scan::{
     CorrelationOptions, FontAnalysisOptions, ImageAnalysisOptions, ProfileFormat, ScanOptions,
@@ -24,7 +24,7 @@ fn make_finding(
         kind: kind.into(),
         severity: Severity::Info,
         confidence: Confidence::Probable,
-        impact: None,
+        impact: Impact::Unknown,
         title: kind.into(),
         description: "test".into(),
         objects: objects.iter().map(|o| o.to_string()).collect(),
@@ -273,7 +273,7 @@ fn correlate_decode_amplification_chain() {
         .expect("decode amplification composite should exist");
     assert_eq!(decode_chain.severity, Severity::High);
     assert_eq!(decode_chain.confidence, Confidence::Strong);
-    assert_eq!(decode_chain.impact, None);
+    assert_eq!(decode_chain.impact, Impact::Unknown);
 
     let override_chain = composites
         .iter()
@@ -281,7 +281,7 @@ fn correlate_decode_amplification_chain() {
         .expect("override/decoder-pressure composite should exist");
     assert_eq!(override_chain.severity, Severity::High);
     assert_eq!(override_chain.confidence, Confidence::Probable);
-    assert_eq!(override_chain.impact, None);
+    assert_eq!(override_chain.impact, Impact::Unknown);
 }
 
 #[test]
@@ -719,7 +719,7 @@ fn correlation_obfuscated_payload_integration() {
         kind: "stream_high_entropy".into(),
         severity: Severity::Low,
         confidence: Confidence::Probable,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Synthetic high entropy stream".into(),
         description: "Synthetic high entropy stream for correlation.".into(),
         objects: filter_finding.objects.clone(),

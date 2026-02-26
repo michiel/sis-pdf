@@ -53,7 +53,7 @@ impl Detector for EncryptionObfuscationDetector {
                                 kind: "encryption_key_short".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "Encryption key length short".into(),
                                 description:
                                     "Encryption key length is below recommended threshold.".into(),
@@ -99,7 +99,7 @@ impl Detector for EncryptionObfuscationDetector {
                     kind: "stream_high_entropy".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "High entropy stream".into(),
                     description: "Stream entropy exceeds expected threshold.".into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -133,7 +133,7 @@ impl Detector for EncryptionObfuscationDetector {
                         kind: "embedded_encrypted".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Embedded file appears encrypted".into(),
                         description: "Embedded file has high entropy with unknown magic.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -229,7 +229,7 @@ impl Detector for EncryptionObfuscationDetector {
                     kind: "packetised_payload_obfuscation".into(),
                     severity,
                     confidence,
-                    impact: Some(impact),
+                    impact: impact,
                     title: "Packetised payload obfuscation".into(),
                     description:
                         "Stream exhibits packet-like high-entropy blocks with index/length traits consistent with staged payload reconstruction."

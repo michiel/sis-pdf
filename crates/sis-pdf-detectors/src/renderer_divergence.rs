@@ -171,7 +171,7 @@ impl Detector for RendererDivergenceDetector {
             kind: "renderer_behavior_divergence_known_path".into(),
             severity,
             confidence,
-            impact: Some(impact),
+            impact: impact,
             title: "Known renderer behaviour divergence path".into(),
             description:
                 "Known reader-behaviour divergence paths were detected across action, script, or form surfaces."
@@ -229,7 +229,7 @@ impl Detector for RendererDivergenceDetector {
                 kind: "renderer_behavior_exploitation_chain".into(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
-                impact: Some(Impact::High),
+                impact: Impact::High,
                 title: "Renderer behaviour exploitation chain".into(),
                 description:
                     "Automatic trigger paths and high-risk renderer surfaces co-occur with script/action capabilities, consistent with exploitation-chain setup."

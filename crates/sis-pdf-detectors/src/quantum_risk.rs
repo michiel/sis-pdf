@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::quantum::{CryptoUsage, QuantumThreatAnalyzer};
 use sis_pdf_pdf::object::PdfAtom;
 
@@ -67,7 +67,7 @@ impl Detector for QuantumRiskDetector {
             kind: "quantum_vulnerable_crypto".into(),
             severity: Severity::Low,
             confidence: Confidence::Heuristic,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Quantum-vulnerable cryptography".into(),
             description: "Signature algorithms are vulnerable to post-quantum attacks.".into(),
             objects: vec!["signature".into()],

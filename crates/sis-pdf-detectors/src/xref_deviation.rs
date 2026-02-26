@@ -62,7 +62,7 @@ impl Detector for XrefTrailerSearchDetector {
                 kind: "xref.trailer_search_invalid".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Strong,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "Xref trailer search invalid".into(),
                 description: format!(
                     "Trailer keyword search failed near offset {} (section kind: {}).",

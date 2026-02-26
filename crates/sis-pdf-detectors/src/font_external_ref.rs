@@ -138,7 +138,7 @@ impl Detector for FontExternalReferenceDetector {
                     kind: "font.external_reference".into(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
-                    impact: Some(Impact::High),
+                    impact: Impact::High,
                     title: "Font with external reference detected".into(),
                     description: format!(
                         "Font dictionary contains references to external resources ({}). \

@@ -145,7 +145,7 @@ impl Detector for RichMediaContentDetector {
                 kind: "swf_embedded".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "SWF content embedded".into(),
                 description: format!(
                     "SWF payload detected (version {}, compression {}, ActionScript tags present: {}).",
@@ -180,7 +180,7 @@ impl Detector for RichMediaContentDetector {
                     kind: "swf_actionscript_detected".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "SWF ActionScript tags detected".into(),
                     description:
                         "SWF stream contains ActionScript tags (DoAction/DoInitAction/DoABC)."
@@ -437,7 +437,7 @@ fn analyse_3d_stream(
         } else {
             Confidence::Probable
         },
-        impact: Some(if has_decoder_correlation { Impact::High } else { Impact::Medium }),
+        impact: if has_decoder_correlation { Impact::High } else { Impact::Medium },
         title: "3D rich-media structure anomaly".into(),
         description:
             "U3D/PRC stream structure deviates from bounded sanity checks and may indicate malformed or exploit-oriented payload material."
@@ -471,7 +471,7 @@ fn analyse_3d_stream(
             kind: "richmedia_3d_decoder_risk".into(),
             severity: Severity::High,
             confidence: Confidence::Strong,
-            impact: Some(Impact::High),
+            impact: Impact::High,
             title: "3D rich-media decoder risk correlation".into(),
             description:
                 "3D structure anomalies co-occur with decoder-risk factors (high entropy, deep filter chain, or decode instability)."

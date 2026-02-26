@@ -148,6 +148,8 @@ Findings in this project include metadata fields for `severity`, `impact`, and `
   3. record meaningful baseline deltas (new findings, severity/confidence shifts, timing changes) in the active plan under `plans/`.
 - If a new fixture is added for modern malware patterns, include at least one assertion guarding against silent drift in runtime profile metadata (for example call ratios, divergence markers, staged payload indicators).
 
+**CLI integration tests** live in `crates/sis-pdf/tests/cli_integration.rs` and exercise the compiled `sis` binary via `std::process::Command`. Run with `cargo test -p sis-pdf --test cli_integration`. The fixture used is `crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf`. A deferred test for `sis diff` (identical inputs → exit 0) requires temp-file coordination and is tracked as a follow-up.
+
 ## Commit & Pull Request Guidelines
 
 - Commit messages are short, imperative, and capitalized

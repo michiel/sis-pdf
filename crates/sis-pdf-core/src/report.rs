@@ -7,7 +7,7 @@ use anyhow::Result;
 use crate::chain::{ChainTemplate, ExploitChain};
 use crate::chain_render::{chain_action_label, chain_payload_label, chain_trigger_label};
 use crate::intent::IntentSummary;
-use crate::model::{AttackSurface, Confidence, Finding, Severity};
+use crate::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Summary {
@@ -822,7 +822,7 @@ fn aggregate_annotation_action_chains(findings: &[Finding]) -> Option<Finding> {
         kind: "annotation_action_chain_aggregate".into(),
         severity,
         confidence,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Annotation action chains aggregated".into(),
         description: format!(
             "Aggregated {} annotation action-chain findings for focused triage.",
@@ -946,7 +946,7 @@ fn aggregate_noisy_kind(kind: &str, findings: &[Finding]) -> Option<Finding> {
         kind: format!("{kind}_aggregate"),
         severity,
         confidence,
-        impact: None,
+        impact: Impact::Unknown,
         title: format!("{kind} aggregated"),
         description: format!(
             "Aggregated {total} findings for `{kind}` across {unique_signature_count} canonical signatures."

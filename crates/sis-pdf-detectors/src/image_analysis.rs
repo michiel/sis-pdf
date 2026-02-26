@@ -230,7 +230,7 @@ fn image_provenance_findings(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Findi
             kind: "image.provenance_incremental_override".into(),
             severity: Severity::Medium,
             confidence: Confidence::Strong,
-            impact: Some(Impact::Medium),
+            impact: Impact::Medium,
             title: "Image object overridden across revisions".into(),
             description:
                 "The image object identifier appears in multiple revisions, indicating override behaviour that can hide payload changes."
@@ -261,7 +261,7 @@ fn image_provenance_findings(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Findi
                 kind: "resource.provenance_xref_conflict".into(),
                 severity: Severity::High,
                 confidence: Confidence::Probable,
-                impact: Some(Impact::High),
+                impact: Impact::High,
                 title: "Resource provenance intersects xref conflict".into(),
                 description:
                     "Image resource revision overrides co-occur with xref conflict signals, increasing parser differential risk."
@@ -523,9 +523,9 @@ fn image_finding_summary(
     }
 }
 
-fn image_finding_impact(kind: &str) -> Option<Impact> {
+fn image_finding_impact(kind: &str) -> Impact {
     match kind {
-        "image.zero_click_jbig2" => Some(Impact::High),
+        "image.zero_click_jbig2" => Impact::High,
         "image.metadata_oversized"
         | "image.metadata_malformed"
         | "image.metadata_scriptable_content"
@@ -534,13 +534,13 @@ fn image_finding_impact(kind: &str) -> Option<Impact> {
         | "image.colour_space_invalid"
         | "image.provenance_incremental_override"
         | "image.structure_filter_chain_inconsistent"
-        | "image.structure_mask_inconsistent" => Some(Impact::Medium),
+        | "image.structure_mask_inconsistent" => Impact::Medium,
         "image.metadata_suspicious_density"
         | "image.decode_array_invalid"
         | "image.indexed_palette_short"
         | "image.bpc_anomalous"
-        | "image.structure_geometry_improbable" => Some(Impact::Low),
-        _ => None,
+        | "image.structure_geometry_improbable" => Impact::Low,
+        _ => Impact::Unknown,
     }
 }
 
@@ -559,9 +559,9 @@ mod tests {
         assert_eq!(confidence, Confidence::Strong);
         assert_eq!(
             image_finding_impact("image.structure_filter_chain_inconsistent"),
-            Some(Impact::Medium)
+            Impact::Medium
         );
-        assert_eq!(image_finding_impact("image.structure_geometry_improbable"), Some(Impact::Low));
+        assert_eq!(image_finding_impact("image.structure_geometry_improbable"), Impact::Low);
     }
 
     #[test]
@@ -573,7 +573,7 @@ mod tests {
         assert_eq!(confidence, Confidence::Strong);
         assert_eq!(
             image_finding_impact("image.provenance_incremental_override"),
-            Some(Impact::Medium)
+            Impact::Medium
         );
     }
 }

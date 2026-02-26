@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::graph_walk::ObjRef;
 use sis_pdf_core::model::{
-    AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
+    AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Impact, Severity,
 };
 use sis_pdf_core::page_tree::build_page_tree;
 use sis_pdf_core::scan::{span_to_evidence, ScanContext};
@@ -91,7 +91,7 @@ impl Detector for VectorGraphicsDetector {
                                 kind: "vector_graphics_anomaly".into(),
                                 severity: signal.severity,
                                 confidence: Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "Suspicious vector content stream".into(),
                                 description: format!(
                                     "Page {} stream uses {} path operators (ratio {:.2}) and {}.",

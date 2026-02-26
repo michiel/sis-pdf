@@ -47,7 +47,7 @@ impl Detector for LinearizationDetector {
                 kind: "linearization_multiple".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Multiple linearization dictionaries".into(),
                 description: format!("Found {} linearization dictionaries.", linearized.len()),
                 objects: linearized.iter().map(|e| format!("{} {} obj", e.obj, e.gen)).collect(),
@@ -175,7 +175,7 @@ impl Detector for LinearizationDetector {
                         kind: "linearization_integrity".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Strong,
-                        impact: Some(Impact::Medium),
+                        impact: Impact::Medium,
                         title: "Linearization integrity anomaly".into(),
                         description:
                             "Linearization dictionary integrity checks failed (size, hint offsets, xref relation, or object ordering)."
@@ -197,7 +197,7 @@ impl Detector for LinearizationDetector {
                         kind: "linearization_invalid".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Linearization values inconsistent".into(),
                         description: "Linearization dictionary fields do not match file layout."
                             .into(),
@@ -216,7 +216,7 @@ impl Detector for LinearizationDetector {
                         kind: "linearization_hint_anomaly".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Heuristic,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Linearization hint tables present".into(),
                         description: "Linearization hint tables may hide malformed offsets.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],

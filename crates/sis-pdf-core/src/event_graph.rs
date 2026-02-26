@@ -1587,6 +1587,7 @@ fn enforce_graph_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Impact;
     use sis_pdf_pdf::graph::ObjectGraph;
     use sis_pdf_pdf::typed_graph::TypedEdge;
 
@@ -1972,7 +1973,7 @@ mod tests {
             description: String::new(),
             severity: crate::model::Severity::High,
             confidence: crate::model::Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             surface: crate::model::AttackSurface::Actions,
             objects: Vec::new(),
             evidence: Vec::new(),

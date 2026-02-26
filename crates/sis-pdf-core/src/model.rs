@@ -76,6 +76,10 @@ impl Impact {
     }
 }
 
+fn default_impact() -> Impact {
+    Impact::Unknown
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EvidenceSource {
     File,
@@ -98,8 +102,8 @@ pub struct Finding {
     pub kind: String,
     pub severity: Severity,
     pub confidence: Confidence,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub impact: Option<Impact>,
+    #[serde(default = "default_impact")]
+    pub impact: Impact,
     pub title: String,
     pub description: String,
     pub objects: Vec<String>,
@@ -135,7 +139,7 @@ impl Default for Finding {
             kind: String::new(),
             severity: Severity::Info,
             confidence: Confidence::Heuristic,
-            impact: None,
+            impact: Impact::Unknown,
             title: String::new(),
             description: String::new(),
             objects: Vec::new(),
@@ -220,7 +224,7 @@ impl FindingBuilder {
     }
 
     pub fn impact(mut self, impact: Impact) -> Self {
-        self.finding.impact = Some(impact);
+        self.finding.impact = impact;
         self
     }
 

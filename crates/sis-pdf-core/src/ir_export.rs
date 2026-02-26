@@ -169,7 +169,7 @@ pub fn export_enhanced_ir_text(enhanced_ir: &EnhancedIrExport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{AttackSurface, Confidence, Severity};
+    use crate::model::{AttackSurface, Confidence, Impact, Severity};
     use sis_pdf_pdf::ir::PdfIrLine;
     use std::collections::HashMap;
 
@@ -179,7 +179,7 @@ mod tests {
             kind: kind.to_string(),
             severity,
             confidence: Confidence::Strong,
-            impact: None,
+            impact: Impact::Unknown,
             surface: AttackSurface::JavaScript,
             title: format!("Test {}", kind),
             description: "Test finding".to_string(),

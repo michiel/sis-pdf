@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashSet;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::decode::stream_filters;
 use sis_pdf_pdf::object::{PdfAtom, PdfName};
@@ -92,7 +92,7 @@ impl Detector for ExternalActionContextDetector {
             kind: "external_action_risk_context".into(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "External action with obfuscation context".into(),
             description:
                 "External action targets are present alongside obfuscation markers (hex-encoded names or deep filter chains)."

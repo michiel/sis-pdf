@@ -81,7 +81,7 @@ impl Detector for ObjStmTortureDetector {
                 kind: "objstm.torture".into(),
                 severity,
                 confidence: Confidence::Probable,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "ObjStm torture detected".into(),
                 description: "Document contains an unusually large number of object streams with mismatched headers or suspicious filters."
                     .into(),

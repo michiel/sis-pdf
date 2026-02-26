@@ -1,4 +1,4 @@
-use crate::model::{AttackSurface, Confidence, Finding, Severity};
+use crate::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use crate::scan::CorrelationOptions;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -1317,7 +1317,7 @@ fn build_composite(config: CompositeConfig<'_>) -> Finding {
         meta,
         yara: None,
         positions: Vec::new(),
-        impact: None,
+        impact: Impact::Unknown,
         action_type: None,
         action_target: None,
         action_initiation: None,
@@ -1611,7 +1611,7 @@ mod tests {
         EdgeProvenance, EventEdge, EventEdgeKind, EventGraph, EventNode, EventNodeKind, EventType,
         OutcomeType, TriggerClass,
     };
-    use crate::model::{AttackSurface, Confidence, Finding, Severity};
+    use crate::model::{AttackSurface, Confidence, Finding, Impact, Severity};
     use crate::scan::CorrelationOptions;
     use std::collections::HashMap;
 
@@ -1633,7 +1633,7 @@ mod tests {
             action_target: None,
             action_initiation: None,
             yara: None,
-            impact: None,
+            impact: Impact::Unknown,
         }
     }
 

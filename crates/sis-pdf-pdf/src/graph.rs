@@ -149,6 +149,23 @@ impl<'a> ObjectGraph<'a> {
     pub fn classify_objects(&self) -> ClassificationMap {
         classify_all_objects(&self.objects)
     }
+
+    /// Resolve `obj` to a [`PdfDict`], following one level of indirect reference if needed.
+    ///
+    /// Returns `Some(dict)` for direct dicts, stream dicts, and refs that resolve to either.
+    /// Returns `None` for all other atom kinds (numbers, names, arrays, etc.).
+    pub fn resolve_to_dict(&self, obj: &PdfObj<'a>) -> Option<PdfDict<'a>> {
+        match &obj.atom {
+            PdfAtom::Dict(d) => Some(d.clone()),
+            PdfAtom::Stream(st) => Some(st.dict.clone()),
+            PdfAtom::Ref { .. } => self.resolve_ref(obj).and_then(|e| match &e.atom {
+                PdfAtom::Dict(d) => Some(d.clone()),
+                PdfAtom::Stream(st) => Some(st.dict.clone()),
+                _ => None,
+            }),
+            _ => None,
+        }
+    }
 }
 
 pub fn parse_pdf(bytes: &[u8], options: ParseOptions) -> Result<ObjectGraph<'_>> {

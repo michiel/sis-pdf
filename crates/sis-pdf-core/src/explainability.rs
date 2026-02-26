@@ -1776,7 +1776,7 @@ fn humanize_pattern(pattern: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Confidence;
+    use crate::model::{Confidence, Impact};
 
     #[test]
     fn test_percentile_computation() {
@@ -2322,7 +2322,7 @@ mod tests {
             kind: "js_eval".to_string(),
             severity: Severity::High,
             confidence: Confidence::Strong,
-            impact: None,
+            impact: Impact::Unknown,
             surface: AttackSurface::JavaScript,
             title: "JavaScript eval usage".to_string(),
             description: "test".to_string(),
@@ -2358,7 +2358,7 @@ mod tests {
             kind: "aa_uri_suspicious".to_string(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             surface: AttackSurface::Actions,
             title: "Suspicious URI".to_string(),
             description: "test".to_string(),
@@ -2388,7 +2388,7 @@ mod tests {
                 kind: "xref_conflict".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
-                impact: None,
+                impact: Impact::Unknown,
                 surface: AttackSurface::XRefTrailer,
                 title: "XRef conflict".to_string(),
                 description: "test".to_string(),
@@ -2407,7 +2407,7 @@ mod tests {
                 kind: "invalid_structure".to_string(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 surface: AttackSurface::FileStructure,
                 title: "Invalid structure".to_string(),
                 description: "test".to_string(),
@@ -2438,7 +2438,7 @@ mod tests {
                 kind: "js_eval".to_string(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
-                impact: None,
+                impact: Impact::Unknown,
                 surface: AttackSurface::JavaScript,
                 title: "JavaScript eval".to_string(),
                 description: "test".to_string(),
@@ -2457,7 +2457,7 @@ mod tests {
                 kind: "xref_conflict".to_string(),
                 severity: Severity::Critical,
                 confidence: Confidence::Strong,
-                impact: None,
+                impact: Impact::Unknown,
                 surface: AttackSurface::XRefTrailer,
                 title: "XRef conflict".to_string(),
                 description: "test".to_string(),

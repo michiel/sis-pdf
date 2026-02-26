@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 
 use crate::js_payload_candidates_from_entry;
@@ -50,7 +50,7 @@ impl Detector for TimingEvasionDetector {
                     kind: "js_time_evasion".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Time-based evasion in JavaScript".into(),
                     description: "JavaScript references timing APIs that can delay execution."
                         .into(),

@@ -429,7 +429,7 @@ impl Detector for XrefConflictDetector {
                 kind: "xref_conflict".into(),
                 severity: assessment.severity,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Multiple startxref entries".into(),
                 description: assessment.description,
                 objects: vec!["xref".into()],
@@ -493,7 +493,7 @@ impl Detector for IncrementalUpdateDetector {
                 kind: "incremental_update_chain".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Incremental update chain present".into(),
                 description: format!(
                     "PDF contains {} startxref markers suggesting incremental updates.",
@@ -577,7 +577,7 @@ impl Detector for ObjectIdShadowingDetector {
                     kind: "object_id_shadowing".into(),
                     severity: base_severity,
                     confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
                     title: "Duplicate object IDs detected".into(),
                     description: format!(
                         "Object {} {} appears {} times ({} total shadowed objects); later revisions may shadow earlier content.",
@@ -672,7 +672,7 @@ impl Detector for ShadowObjectDivergenceDetector {
                     kind: "shadow_object_payload_divergence".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Shadowed object payload divergence".into(),
                     description: format!(
                         "Object {} {} has multiple revisions with differing payload signatures.",
@@ -712,7 +712,7 @@ impl Detector for ShadowObjectDivergenceDetector {
                     kind: "parse_disagreement".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Parser disagreement detected".into(),
                     description: format!(
                         "Carved objects disagree with parsed revisions for {} {}.",
@@ -780,7 +780,7 @@ impl Detector for ObjStmDensityDetector {
                     kind: "objstm_density_high".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "High object stream density".into(),
                     description: format!(
                         "{}/{} objects are /ObjStm (ratio {:.2}).",
@@ -850,7 +850,7 @@ impl Detector for OpenActionDetector {
                         kind: "open_action_present".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Strong,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Document OpenAction present".into(),
                         description: "OpenAction triggers when the PDF opens.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -908,7 +908,7 @@ impl Detector for AAPresentDetector {
                         kind: "aa_present".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Strong,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Additional Actions present".into(),
                         description: "Additional Actions can execute on user events.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1008,7 +1008,7 @@ impl Detector for AAEventDetector {
                                 kind: "aa_event_present".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "AA event action present".into(),
                                 description: format!(
                                     "Additional Actions event {} present.",
@@ -2001,7 +2001,7 @@ impl Detector for JavaScriptDetector {
                             kind: "js_intent_user_interaction".into(),
                             severity: Severity::High,
                             confidence: Confidence::Strong,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "JavaScript user-interaction intent".into(),
                             description:
                                 "JavaScript uses user interaction primitives (alert/confirm/prompt), consistent with social-engineering lure behaviour."
@@ -2036,7 +2036,7 @@ impl Detector for JavaScriptDetector {
                             kind: "js_global_deletion_sandbox_bypass".into(),
                             severity: Severity::High,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "JavaScript global deletion sandbox bypass".into(),
                             description:
                                 "Payload deletes browser globals to escape sandbox restrictions. Known pattern for Apryse WebViewer SDK CVE (10.9.x-10.12.0)."
@@ -2072,7 +2072,7 @@ impl Detector for JavaScriptDetector {
                             kind: "js_prototype_chain_tamper".into(),
                             severity: Severity::High,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "JavaScript prototype chain tampering".into(),
                             description: "Payload null-assigns the prototype constructor \
                                 alongside a generator function constructor eval bypass. This \
@@ -2098,7 +2098,7 @@ impl Detector for JavaScriptDetector {
                         kind: "js_present".into(),
                         severity: js_present_severity,
                         confidence: Confidence::Strong,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "JavaScript present".into(),
                         description: "Inline or referenced JavaScript detected.".into(),
                         objects: vec![object_ref],
@@ -2188,7 +2188,7 @@ impl Detector for LaunchActionDetector {
                 kind: "launch_action_present".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Launch action present".into(),
                 description: "Action dictionary with /S /Launch.".into(),
                 objects: objects.clone(),
@@ -2213,7 +2213,7 @@ impl Detector for LaunchActionDetector {
                     kind: "launch_external_program".into(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Launch action targets external program".into(),
                     description: "Launch action targets an external program or file path.".into(),
                     objects: objects.clone(),
@@ -2239,7 +2239,7 @@ impl Detector for LaunchActionDetector {
                     kind: "launch_embedded_file".into(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Launch action targets embedded file".into(),
                     description: "Launch action targets an embedded file specification.".into(),
                     objects,
@@ -2308,7 +2308,7 @@ impl Detector for PdfjsFontInjectionDetector {
                     kind: "pdfjs_font_injection".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Strong,
-                    impact: Some(Impact::Medium),
+                    impact: Impact::Medium,
                     title: title.into(),
                     description: description.into(),
                     objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -2426,7 +2426,7 @@ impl Detector for FontMatrixDetector {
                             kind: "fontmatrix_payload_present".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
                             title: "Suspicious FontMatrix payload".into(),
                             description: "FontMatrix contains non-numeric entries, suggesting script injection.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -2613,7 +2613,7 @@ impl Detector for FontJsExploitationBridgeDetector {
                 kind: "font_js_exploitation_bridge".into(),
                 severity,
                 confidence,
-                impact: Some(Impact::High),
+                impact: Impact::High,
                 title: "Correlated font and JavaScript exploitation indicators".into(),
                 description:
                     "Suspicious font structures co-occur with executable JavaScript indicators in the same PDF."
@@ -2846,7 +2846,7 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 kind: "pdfjs_annotation_injection".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Strong,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "PDF.js annotation injection indicator".into(),
                 description:
                     "Annotation appearance/content fields contain script-like payload tokens.".into(),
@@ -2891,7 +2891,7 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 kind: "pdfjs_form_injection".into(),
                 severity: Severity::Medium,
                 confidence,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "PDF.js form injection indicator".into(),
                 description:
                     "Form value/appearance fields contain script-like payload tokens.".into(),
@@ -2937,7 +2937,7 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 kind: "form_html_injection".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Strong,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "HTML injection in form field value".into(),
                 description:
                     "Form field value contains HTML tags, event handlers, or context-breaking sequences that could enable XSS if rendered in web context.".into(),
@@ -2976,7 +2976,7 @@ impl Detector for PdfjsRenderingIndicatorDetector {
                 kind: "pdfjs_eval_path_risk".into(),
                 severity: Severity::Info,
                 confidence: Confidence::Strong,
-                impact: Some(Impact::Low),
+                impact: Impact::Low,
                 title: "PDF.js eval-path risk indicator".into(),
                 description:
                     "Document contains font structures commonly associated with PDF.js eval-render paths."
@@ -4025,7 +4025,7 @@ impl Detector for ScatteredPayloadAssemblyDetector {
                 kind: "scattered_payload_assembly".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "Scattered payload assembly indicator".into(),
                 description:
                     "Form payload fragments are benign in isolation but assemble into an injection-capable payload."
@@ -4161,7 +4161,7 @@ impl Detector for CrossStreamPayloadAssemblyDetector {
                     kind: "cross_stream_payload_assembly".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-                    impact: Some(Impact::Medium),
+                    impact: Impact::Medium,
                     title: "Cross-stream payload assembly indicator".into(),
                     description:
                         "JavaScript assembly behaviour aligns with payload fragments reconstructed from form, annotation, or metadata objects."
@@ -4327,10 +4327,10 @@ impl Detector for ActionRemoteTargetSuspiciousDetector {
 
             let (severity, confidence, impact) =
                 match egress_risk_class_for_remote_analysis(&target_analysis) {
-                    "critical" => (Severity::High, Confidence::Strong, Some(Impact::High)),
-                    "high" => (Severity::High, Confidence::Probable, Some(Impact::High)),
-                    "medium" => (Severity::Medium, Confidence::Probable, Some(Impact::Medium)),
-                    _ => (Severity::Low, Confidence::Probable, Some(Impact::Low)),
+                    "critical" => (Severity::High, Confidence::Strong, Impact::High),
+                    "high" => (Severity::High, Confidence::Probable, Impact::High),
+                    "medium" => (Severity::Medium, Confidence::Probable, Impact::Medium),
+                    _ => (Severity::Low, Confidence::Probable, Impact::Low),
                 };
 
             let mut finding = Finding {
@@ -4949,7 +4949,7 @@ impl Detector for EmbeddedFileDetector {
                         kind: "embedded_file_present".into(),
                         severity: Severity::High,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Embedded file stream present".into(),
                         description: "Embedded file detected inside PDF.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -4977,7 +4977,7 @@ impl Detector for EmbeddedFileDetector {
                                 kind: "embedded_executable_present".into(),
                                 severity: Severity::High,
                                 confidence: Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "Embedded executable present".into(),
                                 description: "Embedded file appears to be an executable.".into(),
                                 objects: objects.clone(),
@@ -5010,7 +5010,7 @@ impl Detector for EmbeddedFileDetector {
                                 kind: "embedded_script_present".into(),
                                 severity: Severity::Medium,
                                 confidence: script_confidence,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "Embedded script present".into(),
                                 description: script_description,
                                 objects: objects.clone(),
@@ -5032,7 +5032,7 @@ impl Detector for EmbeddedFileDetector {
                             kind: "embedded_archive_encrypted".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "Embedded archive appears encrypted".into(),
                             description: "Embedded archive indicates encryption flags.".into(),
                             objects: objects.clone(),
@@ -5062,7 +5062,7 @@ impl Detector for EmbeddedFileDetector {
                             kind: "embedded_type_mismatch".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
-                            impact: Some(Impact::Medium),
+                            impact: Impact::Medium,
                             title: "Embedded file type mismatch".into(),
                             description:
                                 "Embedded file extension, declared subtype, and decoded magic markers disagree."
@@ -5088,7 +5088,7 @@ impl Detector for EmbeddedFileDetector {
                             kind: "embedded_double_extension".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "Embedded file uses double extension".into(),
                             description: "Embedded filename uses multiple extensions.".into(),
                             objects,
@@ -5181,7 +5181,7 @@ impl Detector for FormFieldOversizedValueDetector {
                     kind: "form_field_oversized_value".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Tentative,
-                    impact: Some(Impact::Low),
+                    impact: Impact::Low,
                     title: "Oversized form field value".into(),
                     description:
                         "Form field value length exceeds expected interactive form bounds.".into(),
@@ -5290,7 +5290,7 @@ impl Detector for NullRefChainTerminationDetector {
                             Severity::Medium
                         },
                         confidence: Confidence::Probable,
-                        impact: Some(Impact::Medium),
+                        impact: Impact::Medium,
                         title: "Null/missing reference chain termination".into(),
                         description:
                             "Security-relevant reference chain terminates in null or missing object."
@@ -5482,7 +5482,7 @@ impl Detector for RichMediaDetector {
                         kind: "richmedia_present".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
-                        impact: Some(Impact::Low),
+                        impact: Impact::Low,
                         title: "RichMedia content present".into(),
                         description: "RichMedia annotations or dictionaries detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -5550,7 +5550,7 @@ impl Detector for ThreeDDetector {
                         kind: "3d_present".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
-                        impact: Some(Impact::Low),
+                        impact: Impact::Low,
                         title: "3D content present".into(),
                         description: "3D content or stream detected (U3D/PRC).".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -5625,7 +5625,7 @@ impl Detector for SoundMovieDetector {
                         kind: "sound_movie_present".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
-                        impact: Some(Impact::Low),
+                        impact: Impact::Low,
                         title: "Sound or movie content present".into(),
                         description: "Sound/Movie/Rendition objects detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -5672,7 +5672,7 @@ impl Detector for FileSpecDetector {
                         kind: "filespec_present".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "File specification present".into(),
                         description: "Filespec or associated files detected.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -5809,7 +5809,7 @@ impl Detector for CryptoDetector {
                 kind: "dss_present".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "DSS structures present".into(),
                 description: "Document Security Store (DSS) entries detected.".into(),
                 objects: vec!["dss".into()],
@@ -5946,7 +5946,7 @@ impl Detector for OCGDetector {
                         kind: "ocg_present".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Optional content group present".into(),
                         description: "OCG/OCProperties detected; may influence viewer behaviour."
                             .into(),
@@ -5994,7 +5994,7 @@ impl Detector for DecoderRiskDetector {
                         kind: "decoder_risk_present".into(),
                         severity: Severity::High,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "High-risk decoder present".into(),
                         description: format!("Stream uses filters: {}", filters.join(", ")),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -6055,7 +6055,7 @@ impl Detector for DecompressionRatioDetector {
                                 kind: "decompression_ratio_suspicious".into(),
                                 severity: Severity::High,
                                 confidence: Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "Suspicious decompression ratio".into(),
                                 description: format!(
                                     "Decoded output {} bytes from {} input bytes (ratio {:.1}).",
@@ -6110,7 +6110,7 @@ impl Detector for HugeImageDetector {
                                 kind: "huge_image_dimensions".into(),
                                 severity: Severity::Medium,
                                 confidence: Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "Huge image dimensions".into(),
                                 description: format!("Image dimensions {}x{}.", w, h),
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -6182,7 +6182,7 @@ impl Detector for ObfuscatedNameEncodingDetector {
             kind: "obfuscated_name_encoding".into(),
             severity: Severity::Low,
             confidence: Confidence::Tentative,
-            impact: Some(Impact::Low),
+            impact: Impact::Low,
             title: "Obfuscated PDF name encoding".into(),
             description:
                 "Security-relevant PDF names use #xx hex encoding, which may indicate obfuscation."
@@ -6263,7 +6263,7 @@ impl Detector for PdfStringHexEncodedDetector {
             kind: "pdf_string_hex_encoded".into(),
             severity: Severity::Low,
             confidence: Confidence::Tentative,
-            impact: Some(Impact::Low),
+            impact: Impact::Low,
             title: "Hex-encoded PDF string in security context".into(),
             description:
                 "Security-relevant string values use PDF hex-literal syntax, which may indicate obfuscation."
@@ -6622,7 +6622,7 @@ fn action_by_s(
                     kind: kind.into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: title.into(),
                     description: format!(
                         "Action dictionary with /S {}.",

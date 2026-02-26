@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::evidence::preview_ascii;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_core::scan::ScanContext;
 use sis_pdf_pdf::graph::ObjEntry;
@@ -1128,7 +1128,7 @@ impl Detector for UriContentDetector {
                             kind: "uri_content_analysis".to_string(),
                             severity,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "URI with suspicious characteristics".to_string(),
                             description,
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -1508,7 +1508,7 @@ impl Detector for UriPresenceDetector {
             kind: "uri_listing".to_string(),
             severity,
             confidence,
-            impact: None,
+            impact: Impact::Unknown,
             title: "URI(s) present".to_string(),
             description,
             objects: vec!["document".to_string()],

@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 use sis_pdf_core::canonical::canonical_name;
 use sis_pdf_core::correlation;
 use sis_pdf_core::model::{
-    AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
+    AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Impact, Severity,
 };
 use sis_pdf_core::object_context::{build_object_context_index, get_object_context};
 use sis_pdf_core::revision_timeline::{build_revision_timeline, DEFAULT_MAX_REVISIONS};
@@ -337,7 +337,7 @@ fn build_invalid_pdf_result(pdf_path: &Path, bytes: &[u8], reason: &str) -> Quer
         kind: "invalid_pdf_header".into(),
         severity: Severity::High,
         confidence: Confidence::Strong,
-        impact: None,
+        impact: Impact::Unknown,
         title: "Invalid PDF format".into(),
         description: format!("File header validation failed: {}", reason),
         objects: vec![pdf_path.display().to_string()],
@@ -6141,10 +6141,8 @@ fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> Pred
         .cloned()
         .or_else(|| meta_map.get("hash").cloned())
         .or_else(|| meta_map.get("embedded.sha256").cloned());
-    let impact_value = finding.impact.map(|impact| impact.as_str().to_string());
-    if let Some(value) = &impact_value {
-        meta_map.insert("impact".into(), value.clone());
-    }
+    let impact_value = finding.impact.as_str().to_string();
+    meta_map.insert("impact".into(), impact_value.clone());
     let action_type = finding.action_type.clone();
     if let Some(value) = &action_type {
         meta_map.insert("action_type".into(), value.clone());
@@ -6176,7 +6174,7 @@ fn predicate_context_for_finding(finding: &sis_pdf_core::model::Finding) -> Pred
         name,
         magic,
         hash,
-        impact: impact_value,
+        impact: Some(impact_value),
         action_type,
         action_target,
         action_initiation,

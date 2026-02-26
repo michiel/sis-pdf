@@ -1,4 +1,4 @@
-use crate::model::{AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity};
+use crate::model::{AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Impact, Severity};
 use sis_pdf_pdf::ObjectGraph;
 use std::io::Cursor;
 
@@ -83,7 +83,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             kind: "parser_object_count_diff".into(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Parser object count mismatch".into(),
             description: format!(
                 "Primary parser saw {} objects; lopdf saw {} objects.",
@@ -107,7 +107,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             kind: "parser_trailer_count_diff".into(),
             severity: Severity::Low,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Parser trailer count mismatch".into(),
             description: format!(
                 "Primary parser saw {} trailers; lopdf saw {} trailer entries.",
@@ -168,7 +168,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             kind: "parser_diff_structural".into(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Structural parser differential".into(),
             description: format!(
                 "Primary parser missing in lopdf: {}; lopdf-only objects: {}.",
@@ -211,7 +211,7 @@ pub fn diff_with_lopdf(bytes: &[u8], primary: &ObjectGraph<'_>) -> DiffResult {
             kind: "object_shadow_mismatch".into(),
             severity: Severity::Medium,
             confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
             title: "Object shadow mismatch".into(),
             description: format!(
                 "Object sets differ between primary scan and xref-based parse (missing_in_secondary={}, missing_in_primary={}).",

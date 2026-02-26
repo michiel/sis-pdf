@@ -130,11 +130,11 @@ fn map_group_kind(event: &TelemetryEvent) -> &'static str {
 fn map_attributes(
     kind: &str,
     count: usize,
-) -> (Severity, Option<Impact>, Confidence, String, String, String) {
+) -> (Severity, Impact, Confidence, String, String, String) {
     match kind {
         "xref_loop_detected" => (
             Severity::Medium,
-            Some(Impact::Medium),
+            Impact::Medium,
             Confidence::Strong,
             "XRef loop detected".into(),
             format!(
@@ -145,7 +145,7 @@ fn map_attributes(
         ),
         "xref_offset_oob" => (
             Severity::Medium,
-            Some(Impact::Medium),
+            Impact::Medium,
             Confidence::Strong,
             "XRef offset out of bounds".into(),
             format!(
@@ -156,7 +156,7 @@ fn map_attributes(
         ),
         "objstm_recursive_reference" | "objstm_nested_reference" => (
             Severity::Low,
-            Some(Impact::Low),
+            Impact::Low,
             Confidence::Strong,
             "ObjStm recursive reference".into(),
             format!(
@@ -167,7 +167,7 @@ fn map_attributes(
         ),
         "objstm_processing_limited" => (
             Severity::Medium,
-            Some(Impact::Medium),
+            Impact::Medium,
             Confidence::Strong,
             "ObjStm processing limits reached".into(),
             format!(
@@ -178,7 +178,7 @@ fn map_attributes(
         ),
         _ => (
             Severity::Info,
-            None,
+            Impact::Unknown,
             Confidence::Heuristic,
             "Telemetry event".into(),
             format!("Aggregated telemetry events: {}", count),

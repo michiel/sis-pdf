@@ -286,7 +286,7 @@ impl Detector for PassiveRenderPipelineDetector {
             kind: "passive_external_resource_fetch".into(),
             severity: passive_fetch_severity(trigger_mode, max_protocol_risk, preview_prone_context),
             confidence: passive_fetch_confidence(trigger_mode, max_protocol_risk),
-            impact: Some(passive_fetch_impact(trigger_mode, max_protocol_risk, preview_prone_context)),
+            impact: passive_fetch_impact(trigger_mode, max_protocol_risk, preview_prone_context),
             title: "Passive external resource fetch surface".into(),
             description:
                 "External fetch targets were found in rendering-related PDF objects, which may trigger outbound requests during preview, indexing, or open-time processing."
@@ -320,7 +320,7 @@ impl Detector for PassiveRenderPipelineDetector {
                 kind: "passive_credential_leak_risk".into(),
                 severity: passive_credential_severity(trigger_mode, max_protocol_risk),
                 confidence: if ntlm_targets > 0 { Confidence::Strong } else { Confidence::Probable },
-                impact: Some(Impact::High),
+                impact: Impact::High,
                 title: "Passive credential leak risk".into(),
                 description:
                     "UNC/SMB-style external targets were detected in render-time contexts and may leak credentials through implicit authentication attempts."
@@ -353,7 +353,7 @@ impl Detector for PassiveRenderPipelineDetector {
                 kind: "resource.external_reference_high_risk_scheme".into(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
-                impact: Some(Impact::High),
+                impact: Impact::High,
                 title: "High-risk external reference scheme".into(),
                 description:
                     "External references use high-risk schemes (UNC/SMB/file/data) in renderable PDF contexts."
@@ -387,7 +387,7 @@ impl Detector for PassiveRenderPipelineDetector {
                 kind: "resource.external_reference_obfuscated".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "Obfuscated external reference target".into(),
                 description:
                     "External targets include obfuscation markers (encoding/normalisation deltas)."
@@ -423,7 +423,7 @@ impl Detector for PassiveRenderPipelineDetector {
                 kind: "resource.hidden_render_path".into(),
                 severity: Severity::Medium,
                 confidence: Confidence::Probable,
-                impact: Some(Impact::Medium),
+                impact: Impact::Medium,
                 title: "Hidden resource render path".into(),
                 description:
                     "Image/font objects are reachable through resource references without clear direct page ancestry."
@@ -455,7 +455,7 @@ impl Detector for PassiveRenderPipelineDetector {
                 kind: "font.orphaned_but_reachable".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Tentative,
-                impact: Some(Impact::Low),
+                impact: Impact::Low,
                 title: "Font appears orphaned but reachable".into(),
                 description:
                     "Font objects appear reachable through indirect resource chains without direct page linkage."
@@ -486,7 +486,7 @@ impl Detector for PassiveRenderPipelineDetector {
                 kind: "image.orphaned_but_reachable".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Tentative,
-                impact: Some(Impact::Low),
+                impact: Impact::Low,
                 title: "Image appears orphaned but reachable".into(),
                 description:
                     "Image objects appear reachable through indirect resource chains without direct page linkage."
@@ -522,7 +522,7 @@ impl Detector for PassiveRenderPipelineDetector {
                 kind: "passive_render_pipeline_risk_composite".into(),
                 severity: Severity::High,
                 confidence: Confidence::Strong,
-                impact: Some(Impact::High),
+                impact: Impact::High,
                 title: "Passive render pipeline exploitation chain".into(),
                 description:
                     "Automatic trigger pathways, preview-prone contexts, and external fetch targets co-occur, consistent with passive render-pipeline exploitation techniques."

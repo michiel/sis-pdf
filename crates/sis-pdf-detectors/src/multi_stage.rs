@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_pdf::classification::ObjectRole;
 use sis_pdf_pdf::typed_graph::EdgeType;
 
@@ -109,7 +109,7 @@ impl Detector for MultiStageDetector {
                 kind: "multi_stage_attack_chain".into(),
                 severity: Severity::High,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Multi-stage attack chain indicators".into(),
                 description:
                     "Detected JavaScript, embedded content, and outbound action indicators.".into(),

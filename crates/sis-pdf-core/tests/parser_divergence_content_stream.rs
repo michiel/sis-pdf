@@ -86,7 +86,7 @@ fn content_stream_anomaly_reports_unknown_operator_metadata() {
         .expect("content_stream_anomaly should be present");
     assert_eq!(finding.severity, sis_pdf_core::model::Severity::Medium);
     assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Probable);
-    assert_eq!(finding.impact, Some(sis_pdf_core::model::Impact::Low));
+    assert_eq!(finding.impact, sis_pdf_core::model::Impact::Low);
     assert_eq!(finding.meta.get("content.unknown_ops"), Some(&"1".to_string()));
     assert_eq!(finding.meta.get("content.arity_mismatches"), Some(&"0".to_string()));
     assert_eq!(finding.meta.get("content.type_mismatches"), Some(&"0".to_string()));

@@ -58,7 +58,7 @@ fn emits_structural_complexity_summary_finding() {
         .expect("structural complexity summary finding");
     assert_eq!(finding.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Certain);
-    assert_eq!(finding.impact, Some(sis_pdf_core::model::Impact::None));
+    assert_eq!(finding.impact, sis_pdf_core::model::Impact::None);
     assert!(finding.meta.contains_key("trailer_count"));
     assert!(finding.meta.contains_key("startxref_count"));
     assert!(finding.meta.contains_key("revision_count"));

@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::page_tree::build_annotation_parent_map;
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::graph::ObjEntry;
@@ -76,7 +76,7 @@ impl Detector for AnnotationAttackDetector {
                     kind: "annotation_t_field_collision".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Annotation /T field collision".into(),
                     description: format!(
                         "Multiple annotations share /T identifier {:?} on page {}. In Acrobat's \
@@ -129,7 +129,7 @@ impl Detector for AnnotationAttackDetector {
                             kind: "annotation_hidden".into(),
                             severity: Severity::Low,
                             confidence: Confidence::Probable,
-                            impact: None,
+                            impact: Impact::Unknown,
                             title: "Hidden annotation".into(),
                             description: "Annotation rectangle has near-zero size.".into(),
                             objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -198,7 +198,7 @@ impl Detector for AnnotationAttackDetector {
                     kind: "annotation_action_chain".into(),
                     severity,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Annotation action chain".into(),
                     description: format!(
                         "Annotation contains {} action; type={} target={} initiation={}.",
@@ -308,7 +308,7 @@ fn check_uri_dangerous_scheme(
         kind: kind.into(),
         severity: Severity::High,
         confidence,
-        impact: None,
+        impact: Impact::Unknown,
         title: format!("Dangerous URI scheme: {}", analysis.scheme),
         description: description.into(),
         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -398,7 +398,7 @@ fn check_uri_classification_summary(
         kind: "uri_classification_summary".into(),
         severity: Severity::Info,
         confidence: Confidence::Strong,
-        impact: None,
+        impact: Impact::Unknown,
         title: format!("URI classification: {}", a.scheme),
         description: format!(
             "Structured classification of /URI action target: {}",
@@ -559,7 +559,7 @@ fn check_annotation_field_injection(
         kind: "annotation_field_html_injection".into(),
         severity: Severity::Medium,
         confidence: Confidence::Probable,
-        impact: None,
+        impact: Impact::Unknown,
         title: "HTML injection in annotation text field".into(),
         description: format!(
             "Annotation {} field contains HTML or JavaScript-like content. Web-based PDF viewers that render these fields in the DOM may be vulnerable to XSS.",

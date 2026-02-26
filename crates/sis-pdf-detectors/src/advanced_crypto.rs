@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use sis_pdf_core::crypto_analysis::{classify_encryption_algorithm, CryptoAnalyzer, SignatureInfo};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_pdf::object::{PdfAtom, PdfDict, PdfObj};
 use tracing::warn;
@@ -45,7 +45,7 @@ impl Detector for AdvancedCryptoDetector {
                 kind: "encrypt_dict_fallback".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
-                impact: Some(sis_pdf_core::model::Impact::Low),
+                impact: sis_pdf_core::model::Impact::Low,
                 title: "Encryption dictionary recovered via fallback".into(),
                 description: "Trailer /Encrypt reference was unavailable; encryption dictionary was recovered from object graph heuristics.".into(),
                 objects: fallback_object
@@ -86,7 +86,7 @@ impl Detector for AdvancedCryptoDetector {
                     kind: "crypto_weak_algo".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Weak cryptography settings".into(),
                     description: weak.issue,
                     objects: vec!["encrypt".into()],
@@ -110,7 +110,7 @@ impl Detector for AdvancedCryptoDetector {
                 kind: "crypto_cert_anomaly".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Heuristic,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Signature chain anomaly".into(),
                 description: anomaly.issue,
                 objects: vec!["signature".into()],
@@ -145,7 +145,7 @@ impl Detector for AdvancedCryptoDetector {
                         kind: "crypto_mining_js".into(),
                         severity: Severity::High,
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Cryptomining JavaScript".into(),
                         description: "JavaScript includes cryptomining indicators.".into(),
                         objects: vec![format!("{} {} obj", entry.obj, entry.gen)],

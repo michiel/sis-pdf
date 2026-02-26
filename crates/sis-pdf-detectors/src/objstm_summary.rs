@@ -108,7 +108,7 @@ impl Detector for ObjStmSummaryDetector {
                             kind: "stream.object_stream_count_mismatch".into(),
                             severity: Severity::Medium,
                             confidence: Confidence::Probable,
-                            impact: Some(Impact::Medium),
+                            impact: Impact::Medium,
                             title: "ObjStm object count mismatch".into(),
                             description: format!(
                                 "ObjStm declares {} objects but parsed {} header entries.",

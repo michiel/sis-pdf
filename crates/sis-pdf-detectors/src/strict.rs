@@ -38,7 +38,7 @@ impl Detector for StrictParseDeviationDetector {
                 kind: "missing_pdf_header".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Probable,
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Missing PDF header".into(),
                 description: "PDF header not found at start of file.".into(),
                 objects: vec!["header".into()],
@@ -68,7 +68,7 @@ impl Detector for StrictParseDeviationDetector {
                     kind: "header_offset_unusual".into(),
                     severity: if off > 1024 { Severity::Medium } else { Severity::Low },
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "PDF header offset unusual".into(),
                     description: format!(
                         "PDF header found at offset {} (expected at start of file).",
@@ -102,7 +102,7 @@ impl Detector for StrictParseDeviationDetector {
                 kind: "missing_eof_marker".into(),
                 severity: Severity::Low,
                 confidence: Confidence::Strong, // Upgraded: %%EOF presence is definitive check
-                impact: None,
+                impact: Impact::Unknown,
                 title: "Missing EOF marker".into(),
                 description: "EOF marker not found near end of file.".into(),
                 objects: vec!["eof".into()],
@@ -133,7 +133,7 @@ impl Detector for StrictParseDeviationDetector {
                     kind: "eof_offset_unusual".into(),
                     severity: Severity::Low,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "EOF marker far from file end".into(),
                     description: format!(
                         "EOF marker found at offset {}, which is {} bytes from file end.",
@@ -174,7 +174,7 @@ impl Detector for StrictParseDeviationDetector {
                         kind: "stream_missing_length".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: Some(Impact::Medium),
+                        impact: Impact::Medium,
                         title: "Stream missing /Length entry".into(),
                         description: "Stream dictionary does not specify /Length; parsing will rely on heuristics."
                             .into(),
@@ -200,7 +200,7 @@ impl Detector for StrictParseDeviationDetector {
                         kind: "stream_ascii85_missing_eod".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: Some(Impact::Medium),
+                        impact: Impact::Medium,
                         title: "ASCII85 stream missing EOD marker".into(),
                         description:
                             "ASCII85-encoded stream lacks the ~> terminator; data may be truncated."
@@ -235,7 +235,7 @@ impl Detector for StrictParseDeviationDetector {
                         kind: "stream.obfuscated_concealment".into(),
                         severity: Severity::Medium,
                         confidence: Confidence::Probable,
-                        impact: Some(Impact::Medium),
+                        impact: Impact::Medium,
                         title: "Obfuscated stream payload detected".into(),
                         description: "Encrypted/obfuscated stream metadata is malformed; decoding may be incomplete."
                             .into(),
@@ -286,7 +286,7 @@ impl Detector for StrictParseDeviationDetector {
                                 kind: "stream_length_mismatch".into(),
                                 severity,
                                 confidence: Confidence::Probable,
-                                impact: None,
+                                impact: Impact::Unknown,
                                 title: "Stream length mismatch".into(),
                                 description,
                                 objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
@@ -319,7 +319,7 @@ impl Detector for StrictParseDeviationDetector {
                     kind: "parser_deviation_cluster".into(),
                     severity: Severity::Medium,
                     confidence: Confidence::Probable,
-            impact: None,
+            impact: Impact::Unknown,
                     title: "High deviation count".into(),
                     description: format!(
                         "Strict parser recorded {} deviations, indicating potential parser confusion.",
@@ -366,7 +366,7 @@ impl Detector for StrictParseDeviationDetector {
                     kind: "parser_deviation_in_action_context".into(),
                     severity: Severity::High,
                     confidence: Confidence::Probable,
-                    impact: None,
+                    impact: Impact::Unknown,
                     title: "Parser deviations with action context".into(),
                     description:
                         "Parser deviations present alongside JavaScript or Action objects.".into(),
@@ -412,7 +412,7 @@ impl Detector for StrictParseDeviationDetector {
                         kind: "strict_parse_deviation_summary".into(),
                         severity: Severity::Low,
                         confidence: Confidence::Heuristic,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: "Strict parser deviation summary".into(),
                         description: format!(
                             "Strict parser recorded {} deviations across {} kinds; top kinds: {}.",
@@ -450,7 +450,7 @@ impl Detector for StrictParseDeviationDetector {
                         kind: "strict_parse_deviation".into(),
                         severity: deviation_severity(&dev.kind),
                         confidence: Confidence::Probable,
-                        impact: None,
+                        impact: Impact::Unknown,
                         title: format!("Strict parser deviation: {}", dev.kind),
                         description,
                         objects: vec!["parser".into()],

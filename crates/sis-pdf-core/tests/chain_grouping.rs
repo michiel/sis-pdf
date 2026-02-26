@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use sis_pdf_core::chain_synth::synthesise_chains;
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 
 fn base_finding(id: &str, kind: &str, object_ref: &str) -> Finding {
     Finding {
@@ -10,7 +10,7 @@ fn base_finding(id: &str, kind: &str, object_ref: &str) -> Finding {
         kind: kind.to_string(),
         severity: Severity::Low,
         confidence: Confidence::Strong,
-        impact: None,
+        impact: Impact::Unknown,
         title: "test".to_string(),
         description: "test".to_string(),
         objects: vec![object_ref.to_string()],

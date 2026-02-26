@@ -26,7 +26,7 @@ pub fn findings_to_csv_rows(findings: &[Finding]) -> Vec<String> {
             csv_escape(&finding.id),
             csv_escape(&finding.kind),
             csv_escape(&format!("{:?}", finding.severity)),
-            csv_escape(&finding.impact.map(|value| format!("{:?}", value)).unwrap_or_default()),
+            csv_escape(&format!("{:?}", finding.impact)),
             csv_escape(&format!("{:?}", finding.confidence)),
             csv_escape(&format!("{:?}", finding.surface)),
             csv_escape(&finding.title),
