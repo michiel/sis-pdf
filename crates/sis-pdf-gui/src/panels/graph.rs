@@ -1117,6 +1117,14 @@ fn build_graph(app: &mut SisApp) {
                 );
                 if let Some(graph_ref) = app.graph_state.graph.as_mut() {
                     layout.initialise_positions(graph_ref);
+                    // Restore previously saved positions (item 8.3)
+                    for node in &mut graph_ref.nodes {
+                        if let Some(key) = graph_node_position_key(node) {
+                            if let Some(&stored) = app.graph_node_positions.get(&key) {
+                                node.position = stored;
+                            }
+                        }
+                    }
                 }
                 app.graph_state.layout = Some(layout);
                 app.graph_state.layout_start_time = app.elapsed_time;
@@ -1441,8 +1449,25 @@ fn run_layout_step(app: &mut SisApp) {
             app.elapsed_time,
             crate::telemetry::TelemetryEventKind::GraphLayoutCompleted { node_count, duration_ms },
         );
+        // Snapshot node positions for within-session persistence (item 8.3)
+        for node in &graph.nodes {
+            if let Some(key) = graph_node_position_key(node) {
+                app.graph_node_positions.insert(key, node.position);
+            }
+        }
         app.graph_state.layout = None;
     }
+}
+
+/// Derive a stable position-cache key for a graph node.
+fn graph_node_position_key(node: &crate::graph_data::GraphNode) -> Option<String> {
+    if let Some((obj, gen)) = node.object_ref {
+        return Some(format!("{}-{}", obj, gen));
+    }
+    if let Some(ref ev_id) = node.event_node_id {
+        return Some(format!("ev:{}", ev_id));
+    }
+    None
 }
 
 fn build_visible_node_set(app: &SisApp, graph: &GraphData) -> std::collections::HashSet<usize> {

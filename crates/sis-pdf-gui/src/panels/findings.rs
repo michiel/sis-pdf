@@ -238,6 +238,31 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 });
             });
         });
+
+    // "View in chains" button for the currently selected finding
+    if let Some(sel_idx) = app.selected_finding {
+        if sel_idx < findings.len() {
+            let finding_id = &findings[sel_idx].id;
+            let chain_indices: Vec<usize> = result
+                .report
+                .chains
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.findings.iter().any(|fid| fid == finding_id))
+                .map(|(i, _)| i)
+                .collect();
+            if !chain_indices.is_empty() {
+                ui.separator();
+                if ui
+                    .button(format!("View in chains ({})", chain_indices.len()))
+                    .clicked()
+                {
+                    app.show_chains = true;
+                    app.scroll_to_chain = Some(chain_indices[0]);
+                }
+            }
+        }
+    }
 }
 
 fn toggle_sort(sort: &mut crate::app::SortState, column: SortColumn) {

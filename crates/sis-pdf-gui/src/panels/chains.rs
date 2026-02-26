@@ -140,7 +140,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
     egui::ScrollArea::vertical().show(ui, |ui| {
         for &ci in &sorted_indices {
             let chain = &chain_data[ci];
-            ui.group(|ui| {
+            let group_resp = ui.group(|ui| {
                 ui.horizontal(|ui| {
                     let is_selected = app.selected_chain == Some(chain.index);
                     if ui
@@ -209,6 +209,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                                 if ui.link(finding_id).clicked() {
                                     app.selected_finding = Some(*idx);
                                     app.finding_origin_event = None;
+                                    app.show_findings = true;
                                 }
                             } else {
                                 ui.label(finding_id);
@@ -217,6 +218,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                     });
                 }
             });
+            // Scroll to this chain if requested (item 8.1)
+            if app.scroll_to_chain == Some(chain.index) {
+                group_resp.response.scroll_to_me(Some(egui::Align::TOP));
+                app.scroll_to_chain = None;
+            }
             ui.add_space(4.0);
         }
     });

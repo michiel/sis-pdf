@@ -114,6 +114,12 @@ pub struct SisApp {
     pub active_file_path: Option<PathBuf>,
     /// Pending file path for the next analysis transition.
     pub pending_file_path: Option<PathBuf>,
+    /// Chain indices that contain the currently selected finding.
+    pub chains_for_selected_finding: Vec<usize>,
+    /// Request the chains panel to scroll to this chain index on the next render.
+    pub scroll_to_chain: Option<usize>,
+    /// Saved graph node positions (keyed by stable node ID) for within-session persistence.
+    pub graph_node_positions: HashMap<String, [f64; 2]>,
 
     // --- Multi-tab state ---
     /// Inactive workspaces (all tabs except the active one).
@@ -372,6 +378,9 @@ impl SisApp {
             event_graph_cache: None,
             active_file_path: None,
             pending_file_path: None,
+            chains_for_selected_finding: Vec::new(),
+            scroll_to_chain: None,
+            graph_node_positions: HashMap::new(),
             inactive_workspaces: Vec::new(),
             active_tab: 0,
             tab_count: 0,
@@ -528,6 +537,9 @@ impl SisApp {
         self.chain_sort_column = ChainSortColumn::default();
         self.chain_sort_ascending = false;
         self.command_history_pos = None;
+        self.chains_for_selected_finding.clear();
+        self.scroll_to_chain = None;
+        self.graph_node_positions.clear();
 
         // Active tab is the last one
         self.active_tab = self.inactive_workspaces.len();
