@@ -321,6 +321,87 @@ impl Detector for XfaFormDetector {
                         ..Finding::default()
                     });
                 }
+
+                // Deep mode: forward XFA script payloads through static JS analysis.
+                if ctx.options.deep && stats.script_count > 0 {
+                    for script in extract_xfa_script_payloads(&payload.bytes)
+                        .iter()
+                        .take(XFA_JS_ANALYSIS_LIMIT)
+                    {
+                        let signals = js_analysis::static_analysis::extract_js_signals(script);
+                        let has_eval = signals.get("js.contains_eval").is_some_and(|v| v == "true")
+                            || signals
+                                .get("js.dynamic_eval_construction")
+                                .is_some_and(|v| v == "true");
+                        let has_obfuscation = signals
+                            .get("js.jsfuck_encoding")
+                            .is_some_and(|v| v == "true")
+                            || signals
+                                .get("js.jjencode_encoding")
+                                .is_some_and(|v| v == "true")
+                            || signals
+                                .get("js.aaencode_encoding")
+                                .is_some_and(|v| v == "true");
+
+                        if has_eval {
+                            let mut meta = base_meta.clone();
+                            for (k, v) in &signals {
+                                if v == "true" {
+                                    meta.insert(format!("xfa_js.{k}"), v.clone());
+                                }
+                            }
+                            findings.push(Finding {
+                                id: String::new(),
+                                surface: self.surface(),
+                                kind: "xfa_js.eval_detected".into(),
+                                severity: Severity::High,
+                                confidence: Confidence::Strong,
+                                impact: Impact::Unknown,
+                                title: "XFA script contains eval() or dynamic code construction"
+                                    .into(),
+                                description: "XFA script payload contains eval() or equivalent dynamic code execution pattern that may be used to obscure and execute malicious code.".into(),
+                                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                evidence: evidence.clone(),
+                                remediation: Some(
+                                    "Inspect XFA script for obfuscated payload; treat as active code execution risk.".into(),
+                                ),
+                                meta,
+                                yara: None,
+                                positions: Vec::new(),
+                                ..Finding::default()
+                            });
+                        }
+
+                        if has_obfuscation {
+                            let mut meta = base_meta.clone();
+                            for (k, v) in &signals {
+                                if v == "true" {
+                                    meta.insert(format!("xfa_js.{k}"), v.clone());
+                                }
+                            }
+                            findings.push(Finding {
+                                id: String::new(),
+                                surface: self.surface(),
+                                kind: "xfa_js.obfuscated".into(),
+                                severity: Severity::High,
+                                confidence: Confidence::Strong,
+                                impact: Impact::Unknown,
+                                title: "XFA script uses known JavaScript encoding obfuscation"
+                                    .into(),
+                                description: "XFA script payload uses JSFuck, JJEncode, or AAEncode encoding to conceal its true behaviour.".into(),
+                                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                                evidence: evidence.clone(),
+                                remediation: Some(
+                                    "Decode the XFA script and inspect the underlying payload.".into(),
+                                ),
+                                meta,
+                                yara: None,
+                                positions: Vec::new(),
+                                ..Finding::default()
+                            });
+                        }
+                    }
+                }
             }
         }
         Ok(findings)
@@ -329,6 +410,7 @@ impl Detector for XfaFormDetector {
 
 const XFA_MAX_BYTES: usize = 1024 * 1024;
 const XFA_SCRIPT_COUNT_HIGH: usize = 5;
+const XFA_JS_ANALYSIS_LIMIT: usize = 3;
 const XFA_SUBMIT_URL_LIMIT: usize = 5;
 const XFA_FIELD_NAME_LIMIT: usize = 20;
 const XFA_EXECUTE_TAG_LIMIT: usize = 50;
