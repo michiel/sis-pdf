@@ -31,7 +31,20 @@ All tests pass. One pre-existing flaky failure (`sandbox_suppresses_runtime_limi
 
 ---
 
-## Remaining Items
+## Completed Items (this session)
+
+| Item | Commit |
+|---|---|
+| 1.5 — Reconcile action.s field duplication | a788108 |
+| 8.1 — Finding → chain navigation | 0c60422 |
+| 8.2 — Chain → finding navigation | 0c60422 |
+| 8.3 — Persist graph node positions within session | 0c60422 |
+
+All items from this plan are now complete. This file can be removed.
+
+---
+
+## Previously Remaining Items (now done)
 
 ### Item 1.5 — Reconcile action field duplication
 **Priority**: Cleanup / correctness (no behaviour change)
