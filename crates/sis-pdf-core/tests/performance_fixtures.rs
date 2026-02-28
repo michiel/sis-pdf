@@ -134,3 +134,28 @@ fn structure_overlay_p2_build_budget() {
     assert!(!overlay.edges.is_empty(), "overlay should include forensic edges");
     assert!(elapsed_ms <= 100, "overlay build exceeded 100 ms budget: {} ms", elapsed_ms);
 }
+
+#[test]
+fn batch_of_corpus_fixtures_completes_within_global_budget() {
+    // fog-netlify-phishing not included (fixture not in test fixtures dir)
+    let fixtures = [
+        "corpus_captured/apt42-polyglot-pdf-zip-pe-6648302d.pdf",
+        "corpus_captured/booking-js-phishing-379b41e3.pdf",
+        "corpus_captured/modern-gated-supplychain-9ff24c46.pdf",
+        "corpus_captured/romcom-embedded-payload-a99903.pdf",
+        "corpus_captured/modern-renderer-revision-8d42d425.pdf",
+    ];
+    let start = Instant::now();
+    for name in &fixtures {
+        scan_fixture(name);
+    }
+    let elapsed = start.elapsed().as_secs();
+    // 120 s in debug (unoptimised); 30 s in release
+    let budget = if cfg!(debug_assertions) { 120 } else { 30 };
+    assert!(
+        elapsed <= budget,
+        "batch scan exceeded {}s budget: {}s",
+        budget,
+        elapsed
+    );
+}
