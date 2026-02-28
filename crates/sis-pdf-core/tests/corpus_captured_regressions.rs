@@ -35,6 +35,7 @@ fn opts() -> ScanOptions {
         profile_format: ProfileFormat::Text,
         group_chains: true,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: None,
     }
 }
 
@@ -349,42 +350,41 @@ fn corpus_captured_modern_gated_supply_chain_baseline_stays_stable() {
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
         .expect("scan should succeed");
 
-    let supply_chain = finding_by_kind(&report, "supply_chain_update_vector");
-    assert_eq!(supply_chain.severity, sis_pdf_core::model::Severity::Medium);
-    assert_eq!(supply_chain.confidence, sis_pdf_core::model::Confidence::Heuristic);
-
-    let dormant = finding_by_kind(&report, "js_runtime_dormant_or_gated_execution");
-    assert_eq!(dormant.severity, sis_pdf_core::model::Severity::Low);
-    assert_eq!(dormant.confidence, sis_pdf_core::model::Confidence::Tentative);
-    assert_eq!(
-        dormant.meta.get("js.runtime.behavior.name"),
-        Some(&"dormant_or_gated_execution".to_string())
+    // Stage 4.3 fix: content starting with "<<" (PDF dict / PostScript) is now correctly
+    // rejected from JS analysis. The embedded IEEE .joboptions file and the JS runtime
+    // sandbox signals it triggered were false positives — neither finding is emitted.
+    assert!(
+        report.findings.iter().all(|f| f.kind != "supply_chain_update_vector"),
+        "supply_chain_update_vector must not be emitted for a PDF-dict embedded file"
     );
-    assert_eq!(dormant.meta.get("js.runtime.profile_calls_ratio"), Some(&"0.00".to_string()));
+    assert!(
+        report.findings.iter().all(|f| f.kind != "js_runtime_dormant_or_gated_execution"),
+        "js_runtime_dormant_or_gated_execution must not be emitted for a PDF-dict embedded file"
+    );
 
+    // pdfjs_eval_path_risk is static-analysis only and is still correctly emitted
     let pdfjs = finding_by_kind(&report, "pdfjs_eval_path_risk");
     assert_eq!(pdfjs.severity, sis_pdf_core::model::Severity::Info);
     assert_eq!(pdfjs.confidence, sis_pdf_core::model::Confidence::Strong);
 
+    // Object 76 0 is the embedded file container — still tainted via embedded_payload_carved
+    // and similar findings, but without the (now-removed) JS false positives its chain
+    // membership no longer includes an Action role and its max_confidence is Probable.
     let object_context = object_context_for(&report, 76, 0);
     assert!(object_context.tainted, "expected object 76 0 to be tainted");
     assert!(object_context.taint_source, "expected object 76 0 to be a taint source");
     assert_eq!(
         object_context.max_confidence,
-        Some(sis_pdf_core::model::Confidence::Heuristic),
-        "expected object 76 0 confidence to retain supply-chain uncertainty signal"
-    );
-    assert!(
-        object_context.chains.iter().any(|membership| membership.role == ObjectChainRole::Action),
-        "expected object 76 0 to preserve action-role chain context"
+        Some(sis_pdf_core::model::Confidence::Probable),
+        "expected object 76 0 max_confidence to be Probable after JS false-positive removal"
     );
     assert!(
         object_context.chains.iter().any(|membership| membership.role == ObjectChainRole::Payload),
         "expected object 76 0 to preserve payload-role chain context"
     );
     assert!(
-        object_context.taint_reasons.len() >= 2,
-        "expected object 76 0 taint reasons to preserve multi-signal provenance"
+        !object_context.chains.is_empty(),
+        "expected object 76 0 to have chain membership"
     );
 }
 
@@ -853,3 +853,4 @@ fn report_verdict_field_present_on_all_fixtures() {
         verdict.label
     );
 }
+
