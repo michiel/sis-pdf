@@ -27,10 +27,10 @@ impl Detector for ImageAnalysisDetector {
     }
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let mut findings = Vec::new();
+        let mut all_findings = Vec::new();
         let options = &ctx.options.image_analysis;
         if !options.enabled {
-            return Ok(findings);
+            return Ok(all_findings);
         }
 
         let static_opts = ImageStaticOptions {
@@ -42,7 +42,7 @@ impl Detector for ImageAnalysisDetector {
         };
         let static_result =
             image_analysis::static_analysis::analyze_static_images(&ctx.graph, &static_opts);
-        findings.extend(map_findings(ctx, static_result.findings, false));
+        all_findings.extend(map_findings(ctx, static_result.findings, false));
 
         if ctx.options.deep && options.dynamic_enabled {
             let dynamic_opts = ImageDynamicOptions {
@@ -54,9 +54,62 @@ impl Detector for ImageAnalysisDetector {
             };
             let dynamic_result =
                 image_analysis::dynamic::analyze_dynamic_images(&ctx.graph, &dynamic_opts);
-            findings.extend(map_findings(ctx, dynamic_result.findings, true));
+            all_findings.extend(map_findings(ctx, dynamic_result.findings, true));
         }
-        findings.extend(image_provenance_findings(ctx));
+        all_findings.extend(image_provenance_findings(ctx));
+
+        // Suppress isolated decode_skipped findings: only keep them when co-located
+        // with other image anomalies on the same object.
+        let anomaly_objects: std::collections::HashSet<String> = all_findings
+            .iter()
+            .filter(|f| {
+                f.kind != "image.decode_skipped"
+                    && (f.kind.starts_with("image.") || f.kind == "label_mismatch_stream_type")
+            })
+            .flat_map(|f| f.objects.iter().cloned())
+            .collect();
+
+        let mut findings = Vec::new();
+        let mut suppressed_count = 0usize;
+        for f in all_findings {
+            if f.kind == "image.decode_skipped" {
+                let co_located = f.objects.iter().any(|obj| anomaly_objects.contains(obj));
+                if co_located {
+                    findings.push(f);
+                } else {
+                    suppressed_count += 1;
+                }
+            } else {
+                findings.push(f);
+            }
+        }
+        if suppressed_count > 0 {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("image.suppressed_count".into(), suppressed_count.to_string());
+            meta.insert("image.suppress_reason".into(), "no_colocated_anomaly".into());
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::Images,
+                kind: "image.decode_skipped".into(),
+                severity: Severity::Info,
+                confidence: Confidence::Strong,
+                impact: Impact::Unknown,
+                title: format!(
+                    "{suppressed_count} isolated image-decode-skipped findings suppressed"
+                ),
+                description: format!(
+                    "{suppressed_count} image.decode_skipped findings had no co-located image \
+                     anomalies and were suppressed to reduce noise."
+                ),
+                objects: vec!["image_analysis".into()],
+                evidence: Vec::new(),
+                remediation: None,
+                meta,
+                yara: None,
+                positions: Vec::new(),
+                ..Finding::default()
+            });
+        }
 
         Ok(findings)
     }

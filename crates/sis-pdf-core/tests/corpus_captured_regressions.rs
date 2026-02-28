@@ -854,3 +854,71 @@ fn report_verdict_field_present_on_all_fixtures() {
     );
 }
 
+#[test]
+fn cov1_colocated_decode_skipped_preserved_in_supply_chain_fixture() {
+    // modern-gated-supplychain has 21 image.decode_skipped findings. Each is
+    // co-located with an image.colour_space_invalid finding on the same object.
+    // COV-1 suppression should KEEP these (they provide context for the anomaly)
+    // and NOT emit a suppression summary.
+    let bytes =
+        include_bytes!("fixtures/corpus_captured/modern-gated-supplychain-9ff24c46.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    // No suppression summary should be emitted (all are co-located with anomalies).
+    let suppressed_summaries: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| {
+            f.kind == "image.decode_skipped"
+                && f.meta.get("image.suppress_reason").is_some()
+        })
+        .collect();
+    assert!(
+        suppressed_summaries.is_empty(),
+        "no suppression summary should be emitted when all decode_skipped are co-located"
+    );
+
+    // All co-located decode_skipped findings should be present.
+    let decode_skipped_count =
+        report.findings.iter().filter(|f| f.kind == "image.decode_skipped").count();
+    assert!(
+        decode_skipped_count >= 10,
+        "expected >= 10 co-located decode_skipped to be preserved, got {}",
+        decode_skipped_count
+    );
+}
+
+#[test]
+fn cov6_entropy_clustering_fires_on_apt42_polyglot_deep() {
+    // apt42 is a PDF+ZIP polyglot with PE executables — many high-entropy stream objects.
+    // With deep=true the entropy_clustering detector (Cost::Expensive) should fire.
+    let report = scan_corpus_fixture("apt42-polyglot-pdf-zip-pe-6648302d.pdf");
+    assert_finding_kind_present(&report, "entropy_high_object_ratio");
+    let finding = finding_by_kind(&report, "entropy_high_object_ratio");
+    assert_eq!(finding.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert!(
+        finding.meta.get("entropy.ratio").is_some(),
+        "expected entropy.ratio metadata"
+    );
+}
+
+#[test]
+fn cov6_entropy_clustering_absent_without_deep() {
+    // With deep=false the entropy_clustering detector is Cost::Expensive and should be skipped.
+    let bytes =
+        fs::read(corpus_captured_dir().join("apt42-polyglot-pdf-zip-pe-6648302d.pdf"))
+            .expect("fixture exists");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let mut no_deep_opts = opts();
+    no_deep_opts.deep = false;
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, no_deep_opts, &detectors)
+            .expect("scan should succeed");
+    assert!(
+        report.findings.iter().all(|f| f.kind != "entropy_high_object_ratio"),
+        "entropy_high_object_ratio must not fire when deep=false"
+    );
+}
