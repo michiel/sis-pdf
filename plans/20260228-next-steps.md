@@ -60,17 +60,10 @@ correlator. Low urgency since COV-5 provides the richer path.
 
 ---
 
-### MEDIUM: `sis query <pdf> chains` Returns Empty
+### ~~MEDIUM: `sis query <pdf> chains` Returns Empty~~ (Documented)
 
-**Problem**: `sis query <pdf> chains` returns 0 chains because the query command re-parses
-the PDF but doesn't run the scan pipeline. Chains are synthesized at scan time and not
-persisted.
-
-**Fix options**:
-1. Have `query chains` trigger a scan internally (simpler, slower).
-2. Persist chains to a sidecar file at scan time (complex).
-
-**Decision**: Deferred. Document in USAGE.md that chains require `sis scan --json` output.
+Documented in USAGE.md under "Chain queries" section. Users should use
+`sis scan --json | jq '.chains[]'` to inspect chains.
 
 ---
 
@@ -178,7 +171,7 @@ sis scan casestudies/apt42-polyglot-pdf-zip-pe/sample.pdf --deep --json | jq .ve
 | intent.rs decode.ratio key fix | ✅ |
 | casestudies/ directory (6 entries) | ✅ |
 | AGENTS.md case study workflow | ✅ |
-| Chain architecture: singleton reduction | 📋 |
+| Chain architecture: singleton reduction | ✅ |
 | correlate campaign line limit | ⏸ |
 | query chains without scan | ⏸ |
 | fog-netlify fixture capture | 📋 |
