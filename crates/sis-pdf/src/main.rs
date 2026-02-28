@@ -200,7 +200,7 @@ enum Command {
         r#where: Option<String>,
         #[arg(long, help = "Path to config file")]
         config: Option<PathBuf>,
-        #[arg(long, help = "Deep scan mode: include Cost::Expensive detectors (default runs Cheap + Moderate)")]
+        #[arg(long, help = "Enable deep analysis (expensive detectors: full font scan, entropy clustering, XFA script extraction)")]
         deep: bool,
         #[arg(long, help = "Enable secondary parser (lopdf) diff for structural findings")]
         diff_parser: bool,
@@ -660,6 +660,13 @@ enum StreamCommand {
 enum CorrelateCommand {
     #[command(about = "Correlate network intents across PDFs from JSONL input")]
     Campaign {
+        #[arg(long)]
+        input: PathBuf,
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
+    #[command(about = "Cluster findings across PDFs by kind and payload fingerprint")]
+    Findings {
         #[arg(long)]
         input: PathBuf,
         #[arg(short, long)]
@@ -1189,6 +1196,9 @@ fn main() -> Result<()> {
         Command::Correlate(cmd) => match cmd {
             CorrelateCommand::Campaign { input, out } => {
                 run_campaign_correlate(&input, out.as_deref())
+            }
+            CorrelateCommand::Findings { input, out } => {
+                run_findings_correlate(&input, out.as_deref())
             }
         },
         Command::Generate(cmd) => match cmd {
@@ -5296,6 +5306,99 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
     }
     Ok(())
 }
+fn run_findings_correlate(input: &std::path::Path, out: Option<&std::path::Path>) -> Result<()> {
+    let data = read_text_with_limit(input, MAX_JSONL_BYTES)?;
+    // key: finding kind, value: (count, files set, sample severity, sample confidence)
+    let mut clusters: std::collections::HashMap<
+        String,
+        (usize, std::collections::BTreeSet<String>, String, String),
+    > = std::collections::HashMap::new();
+    let mut skipped_lines = 0usize;
+    let mut entries = 0usize;
+    for line in data.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if line.len() > MAX_JSONL_LINE_BYTES {
+            skipped_lines += 1;
+            continue;
+        }
+        entries += 1;
+        if entries > MAX_JSONL_ENTRIES {
+            error!(max_entries = MAX_JSONL_ENTRIES, "JSONL entry limit exceeded");
+            return Err(anyhow!("JSONL entry limit exceeded"));
+        }
+        let v: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(err) => {
+                warn!(error = %err, "JSONL parse error");
+                continue;
+            }
+        };
+        let path = v.get("path").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+        let finding = match v.get("finding") {
+            Some(f) => f,
+            None => continue,
+        };
+        let kind = match finding.get("kind").and_then(|k| k.as_str()) {
+            Some(k) if !k.is_empty() => k.to_string(),
+            _ => continue,
+        };
+        let severity = finding
+            .get("severity")
+            .and_then(|s| s.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        let confidence = finding
+            .get("confidence")
+            .and_then(|s| s.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        let entry = clusters.entry(kind).or_insert_with(|| {
+            (0, std::collections::BTreeSet::new(), severity.clone(), confidence.clone())
+        });
+        entry.0 += 1;
+        entry.1.insert(path);
+    }
+    if skipped_lines > 0 {
+        warn!(
+            skipped = skipped_lines,
+            max_line_bytes = MAX_JSONL_LINE_BYTES,
+            "some JSONL lines exceeded max-line-bytes and were skipped"
+        );
+    }
+    let mut cluster_list: Vec<serde_json::Value> = clusters
+        .into_iter()
+        .map(|(kind, (count, files, severity, confidence))| {
+            serde_json::json!({
+                "kind": kind,
+                "count": count,
+                "files": files.into_iter().collect::<Vec<_>>(),
+                "severity": severity,
+                "confidence": confidence,
+            })
+        })
+        .collect();
+    cluster_list.sort_by(|a, b| {
+        b.get("count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            .cmp(&a.get("count").and_then(|v| v.as_u64()).unwrap_or(0))
+    });
+    let output = serde_json::json!({
+        "type": "findings_clusters",
+        "cluster_count": cluster_list.len(),
+        "clusters": cluster_list,
+    });
+    let rendered = serde_json::to_string_pretty(&output)?;
+    if let Some(path) = out {
+        fs::write(path, rendered)?;
+    } else {
+        println!("{}", rendered);
+    }
+    Ok(())
+}
+
 fn run_response_generate(
     kind: Option<&str>,
     from_report: Option<&std::path::Path>,

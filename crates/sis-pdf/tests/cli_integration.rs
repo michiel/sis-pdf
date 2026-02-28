@@ -123,3 +123,47 @@ fn fast_deep_conflict_error() {
 // then invoking `sis diff`. Deferred for now due to temp-file coordination
 // complexity in a no-std-process integration test context.
 // Tracked as a follow-up task.
+
+#[test]
+fn correlate_findings_clusters_by_kind() {
+    // Write a synthetic 3-line JSONL: two matching font.cmap_range_overlap findings
+    // from different files, plus one embedded_file_present finding.
+    let jsonl = concat!(
+        r#"{"path":"a.pdf","finding":{"kind":"font.cmap_range_overlap","severity":"Medium","confidence":"Strong"}}"#,
+        "\n",
+        r#"{"path":"b.pdf","finding":{"kind":"font.cmap_range_overlap","severity":"Medium","confidence":"Strong"}}"#,
+        "\n",
+        r#"{"path":"c.pdf","finding":{"kind":"embedded_file_present","severity":"Low","confidence":"Probable"}}"#,
+        "\n"
+    );
+    let dir = std::env::temp_dir();
+    let input_path = dir.join("sis_test_correlate_findings.jsonl");
+    std::fs::write(&input_path, jsonl).expect("write temp JSONL");
+
+    let out = Command::new(sis_bin())
+        .args(["correlate", "findings", "--input", input_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run sis correlate findings");
+
+    let _ = std::fs::remove_file(&input_path);
+
+    assert!(out.status.success(), "exit code: {}\nstderr: {}", out.status, String::from_utf8_lossy(&out.stderr));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("stdout is not valid JSON");
+
+    assert_eq!(
+        json.get("type").and_then(|t| t.as_str()),
+        Some("findings_clusters"),
+        "expected type=findings_clusters"
+    );
+
+    let clusters = json.get("clusters").and_then(|c| c.as_array()).expect("missing clusters array");
+    let font_cluster = clusters
+        .iter()
+        .find(|c| c.get("kind").and_then(|k| k.as_str()) == Some("font.cmap_range_overlap"))
+        .expect("expected cluster for font.cmap_range_overlap");
+
+    let count = font_cluster.get("count").and_then(|c| c.as_u64()).unwrap_or(0);
+    assert!(count >= 2, "expected count >= 2 for font.cmap_range_overlap cluster, got {}", count);
+}
