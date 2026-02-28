@@ -771,3 +771,119 @@ Baseline deltas from fresh deep scans:
   - Cluster chains present: `Image anomaly cluster`, `Decoder risk cluster`,
     `Stream type mismatch cluster`.
   - Residual gap: cross-cluster fusion with `content_invisible_text` remains.
+
+---
+
+## Random Sample Validation (Merged from `20260228-random-corpus-sample-uplift.md`)
+
+### Sampling method
+
+Random sample was drawn from `tmp/corpus`:
+
+```bash
+find tmp/corpus -type f -name '*.pdf' | sort > /tmp/all_corpus_pdfs.txt
+shuf -n 15 /tmp/all_corpus_pdfs.txt > /tmp/sample15.txt
+```
+
+Baseline command:
+
+```bash
+sis scan <file.pdf> --deep --json
+```
+
+### 15-file sample results (2026-02-28)
+
+- Total sample size: 15 files (from 820 available corpus PDFs)
+- Hard failures: 0 (all exit code 0)
+- Runtime outliers:
+  - `c2d0d7e2...` at 34,652 ms
+  - `b509f6c9...` at 5,037 ms
+- Chain quality aggregate:
+  - 204 chains total
+  - 151 singleton chains
+  - singleton rate: 74.0%
+  - edges present in 33.3% of chains
+  - `chain_completeness > 0` in 51.5% of chains
+
+### Deep-analysis subset (6 files)
+
+Selected for variety:
+
+1. `ef6dff9b...` (mshta launch chain)
+2. `6648302d...` (APT42 polyglot ZIP+PE)
+3. `9ab20ec2...` (ConnectWise-style URI + obfuscation)
+4. `c2d0d7e2...` (decode budget / object-depth exhaustion)
+5. `b509f6c9...` (decompression bomb + parser pressure)
+6. `2b708add...` (low-signal anomalous floor case)
+
+Runtime profile observation across this subset:
+
+- Top detector by runtime for all six files: `content_first_stage1`
+- Peak runtime share:
+  - `c2d0d7e2...`: ~33,016 ms / ~33,712 ms total
+  - `b509f6c9...`: ~5,055 ms / ~5,077 ms total
+  - `9ab20ec2...`: ~1,510 ms / ~1,565 ms total
+
+Dynamic-analysis coverage in this subset:
+
+- `sandbox_summary.profiles = 0` for all six reports
+- Deep mode remains primarily static-analysis expansion for these samples
+
+### Additional fixtures and case studies added from this validation
+
+New corpus-captured fixtures:
+
+- `decode-budget-exhaustion-c2d0d7e2.pdf`
+- `decompression-bomb-font-flood-b509f6c9.pdf`
+- `connectwise-filter-obfuscation-9ab20ec2.pdf`
+
+New case studies:
+
+- `casestudies/decode-budget-exhaustion-c2d0d7e2/`
+- `casestudies/decompression-bomb-font-flood-b509f6c9/`
+- `casestudies/connectwise-filter-obfuscation-9ab20ec2/`
+
+---
+
+## Implementation Audit (as of 2026-02-28)
+
+Status key:
+- `Implemented`: landed with tests and/or fixture evidence
+- `Partial`: landed in part; residual gaps remain
+- `Not started`: not yet landed in current branch
+
+| ID | Status | Notes |
+|---|---|---|
+| CRIT-1 | Implemented | `content_stream_exec_uplift` O(n²) issue fixed; perf guard regression fixture exists (`perf-hang-717obj-fb87d8a7.pdf`). |
+| CRIT-2 | Partial | Guardrails exist, but `content_phishing` still contributes materially on large files; further optimisation still required. |
+| CRIT-3 | Implemented | Per-file timeout plumbing is present (`per_file_timeout_ms` in scan options and runtime paths). |
+| CHAIN-1 | Partial | Tier-A kind clustering implemented; Tier-B/Tier-C (behaviour_summary/event-graph chain synthesis) not complete. |
+| CHAIN-2 | Implemented | Deduplication pass landed; duplicate-finding-in-multiple-chains regressions improved. |
+| CHAIN-3 | Implemented | Stage inference + blended completeness formula landed in chain synthesis. |
+| CHAIN-4 | Implemented | Chain `label` and `severity` fields landed and are covered by regression tests. |
+| DET-1 | Partial | Polyglot intent/correlation significantly improved, but full top-chain assembly remains inconsistent in some runs. |
+| DET-2 | Implemented | `DenialOfService` intent now fires strongly for decompression-bomb patterns. |
+| DET-3 | Implemented | `font_exploitation_cluster` and font clustering behaviour landed. |
+| DET-4 | Implemented | Intent confidence promotion landed; heuristic-only drift reduced on mixed-confidence samples. |
+| DET-5 | Partial | Some cycle handling improved, but high cycle volumes (20+) still appear in random-sample fixtures. |
+| DET-6 | Not started | Correlate campaign line-size limit uplift is not completed end-to-end. |
+| COV-1 | Partial | `image.decode_skipped` handling improved for co-located signals; still noisy in large anomaly-heavy files. |
+| COV-2 | Partial | JS non-JS payload heuristics improved, but dynamic false-positive handling needs further hardening. |
+| COV-3 | Implemented | Verdict roll-up is present in scan JSON and covered by regression tests. |
+| COV-4 | Not started | `sis query chains` still requires clearer inline-scan/caching behaviour alignment. |
+| COV-5 | Not started | `sis correlate findings` expansion not implemented. |
+| COV-6 | Partial | Deep mode has gained additional value (entropy, launch-param extraction, etc.), but still often close to standard mode for many files. |
+
+### Overall completion estimate
+
+- Implemented: 9 / 20
+- Partial: 8 / 20
+- Not started: 3 / 20
+
+Practical interpretation:
+- Core stability and baseline chain/schema uplift are in place.
+- Remaining highest-impact work is concentrated in:
+  - `content_first_stage1` performance control,
+  - richer end-to-end chain synthesis (Tier-B/Tier-C),
+  - correlate/query workflow completion,
+  - tighter high-volume noise compaction.
