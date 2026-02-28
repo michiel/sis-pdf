@@ -1,0 +1,23 @@
+{
+  "id": "modern-renderer-revision",
+  "filename": "modern-renderer-revision-8d42d425.pdf",
+  "sha256": "8d42d425d003480d1acc9082e51cb7a2007208ebef715493836b6afec9ce91bc",
+  "fixture_path": "corpus_captured/modern-renderer-revision-8d42d425.pdf",
+  "source": "mwb-2026-01-16 corpus",
+  "threat_actor": "Unknown",
+  "threat_family": "renderer-divergence-revision-shadow",
+  "classification": "Suspicious",
+  "techniques": ["incremental-revision", "renderer-divergence", "object-shadowing", "annotation-override"],
+  "mitre_attack": ["T1036.007", "T1027", "T1564"],
+  "detection_signals": [
+    "renderer_behavior_divergence_known_path: high/strong",
+    "renderer_behavior_exploitation_chain: high/strong",
+    "revision_annotations_changed: medium/probable",
+    "revision_anomaly_scoring: low/tentative"
+  ],
+  "intent_buckets": ["ExploitPrimitive", "Obfuscation"],
+  "verdict": "Suspicious",
+  "regression_test": "corpus_captured_modern_renderer_revision_baseline_stays_stable",
+  "first_seen": "2026-01-16",
+  "analysis_date": "2026-02-28"
+}

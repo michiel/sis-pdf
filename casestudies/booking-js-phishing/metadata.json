@@ -1,0 +1,23 @@
+{
+  "id": "booking-js-phishing",
+  "filename": "booking-js-phishing-379b41e3.pdf",
+  "sha256": "379b41e3fd94f48d3f1756202fc4e702a98af4f01ca59b1be30cb3e31bc4b3ce",
+  "fixture_path": "corpus_captured/booking-js-phishing-379b41e3.pdf",
+  "source": "mwb-latest corpus (2026-02-23)",
+  "threat_actor": "Unknown (phishing campaign)",
+  "threat_family": "js-credential-phishing",
+  "classification": "Suspicious",
+  "techniques": ["js-redirect", "fake-booking-lure", "netlify-abuse", "user-interaction-trigger"],
+  "mitre_attack": ["T1566.001", "T1056.003", "T1204.002"],
+  "detection_signals": [
+    "js_present: medium/strong",
+    "annotation_action_chain: low/strong (netlify URL)",
+    "js_intent_user_interaction: high/strong",
+    "network_intents: bocking.netlify.app"
+  ],
+  "intent_buckets": ["DataExfiltration", "Phishing"],
+  "verdict": "Suspicious",
+  "regression_test": "booking_js_phishing_core_detections_present",
+  "first_seen": "2026-02-23",
+  "analysis_date": "2026-02-28"
+}

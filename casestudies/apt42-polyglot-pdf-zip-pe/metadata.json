@@ -1,0 +1,24 @@
+{
+  "id": "apt42-polyglot-pdf-zip-pe",
+  "filename": "apt42-polyglot-pdf-zip-pe-6648302d.pdf",
+  "sha256": "6648302d497ee2364d3b10d0bebd1c30cedf649117a682754aebd35761a5d2ff",
+  "fixture_path": "corpus_captured/apt42-polyglot-pdf-zip-pe-6648302d.pdf",
+  "source": "mwb-latest corpus (2026-02-23)",
+  "threat_actor": "APT42 (attributed)",
+  "threat_family": "polyglot-dropper",
+  "classification": "Malicious",
+  "techniques": ["polyglot-file", "pe-dropper", "zip-embedding", "high-entropy-stream"],
+  "mitre_attack": ["T1027.009", "T1055", "T1566.001"],
+  "detection_signals": [
+    "polyglot_signature_conflict: high/strong",
+    "embedded_payload_carved: medium/strong (zip stream)",
+    "nested_container_chain: high/probable x2 (PE entries)",
+    "polyglot_pe_dropper: critical/strong (composite)",
+    "entropy_high_object_ratio: low/probable (stream entropy 7.99)"
+  ],
+  "intent_buckets": ["ExploitPrimitive", "SandboxEscape"],
+  "verdict": "Malicious",
+  "regression_test": "apt42_polyglot_core_detections_present",
+  "first_seen": "2026-02-23",
+  "analysis_date": "2026-02-28"
+}

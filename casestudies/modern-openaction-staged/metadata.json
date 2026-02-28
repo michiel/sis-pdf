@@ -1,0 +1,25 @@
+{
+  "id": "modern-openaction-staged",
+  "filename": "modern-openaction-staged-38851573.pdf",
+  "sha256": "38851573fd1731b1bd94a38e35f5ea1bd1e4944821e08e27857d68a670c64105",
+  "fixture_path": "corpus_captured/modern-openaction-staged-38851573.pdf",
+  "source": "mwb-2026-01-25 corpus",
+  "threat_actor": "Unknown",
+  "threat_family": "staged-openaction-exploit",
+  "classification": "Suspicious",
+  "techniques": ["openaction-trigger", "staged-payload", "js-file-probe", "renderer-divergence", "supply-chain"],
+  "mitre_attack": ["T1059.007", "T1204.002", "T1195", "T1082"],
+  "detection_signals": [
+    "renderer_behavior_divergence_known_path: high/strong",
+    "renderer_behavior_exploitation_chain: high/strong",
+    "supply_chain_staged_payload: high/probable",
+    "js_runtime_file_probe: high/strong (exportDataObject call)",
+    "pdfjs_eval_path_risk: info/strong"
+  ],
+  "intent_buckets": ["ExploitPrimitive", "SandboxEscape", "Persistence"],
+  "verdict": "Suspicious",
+  "regression_test": "corpus_captured_modern_openaction_staged_baseline_stays_stable",
+  "first_seen": "2026-01-25",
+  "analysis_date": "2026-02-28",
+  "notes": "Complex distributed chain with >= 4 nodes. Multi-reader divergence pattern. Stage coverage: decode/render/execute. Uses exportDataObject JS API for file probing."
+}

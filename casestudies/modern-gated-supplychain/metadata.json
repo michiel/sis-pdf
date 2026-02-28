@@ -1,0 +1,24 @@
+{
+  "id": "modern-gated-supplychain",
+  "filename": "modern-gated-supplychain-9ff24c46.pdf",
+  "sha256": "9ff24c464780feb6425d0ab1f30a74401e228b9ad570bb25698e31b4b313a4f4",
+  "fixture_path": "corpus_captured/modern-gated-supplychain-9ff24c46.pdf",
+  "source": "mwb-2026-01-15 corpus",
+  "threat_actor": "Unknown",
+  "threat_family": "supply-chain-update-vector",
+  "classification": "Suspicious",
+  "techniques": ["gated-execution", "supply-chain-update", "dormant-payload", "eval-path"],
+  "mitre_attack": ["T1195", "T1059.007", "T1036"],
+  "detection_signals": [
+    "supply_chain_update_vector: medium/heuristic",
+    "js_runtime_dormant_or_gated_execution: low/tentative",
+    "pdfjs_eval_path_risk: info/strong",
+    "image.colour_space_invalid: medium/strong x21 (image analysis)"
+  ],
+  "intent_buckets": ["Obfuscation"],
+  "verdict": "Suspicious",
+  "regression_test": "corpus_captured_modern_gated_supply_chain_baseline_stays_stable",
+  "first_seen": "2026-01-15",
+  "analysis_date": "2026-02-28",
+  "notes": "Contains embedded IEEE .joboptions file (PDF dict format). JS false positives from supply_chain_update_vector and js_runtime_dormant fixed in Stage 4.3. All 21 image.decode_skipped are co-located with colour_space_invalid on same objects."
+}

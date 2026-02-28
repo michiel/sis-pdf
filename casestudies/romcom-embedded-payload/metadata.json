@@ -1,0 +1,23 @@
+{
+  "id": "romcom-embedded-payload",
+  "filename": "romcom-embedded-payload-a99903.pdf",
+  "sha256": "a99903938bf242ea6465865117561ba950bd12a82f41b8eeae108f4f3d74b5d1",
+  "fixture_path": "corpus_captured/romcom-embedded-payload-a99903.pdf",
+  "source": "mwb-latest corpus (2026-02-23)",
+  "threat_actor": "RomCom (attributed)",
+  "threat_family": "embedded-payload-dropper",
+  "classification": "Suspicious",
+  "techniques": ["embedded-payload", "jpeg-carved-payload", "network-exfiltration"],
+  "mitre_attack": ["T1027", "T1566.001", "T1071"],
+  "detection_signals": [
+    "embedded_payload_carved: x2 (carve.kind=jpeg)",
+    "network_intents present",
+    "intent ExploitPrimitive score=4 confidence=Strong"
+  ],
+  "intent_buckets": ["ExploitPrimitive", "DataExfiltration"],
+  "verdict": "Suspicious",
+  "regression_test": "romcom_embedded_payload_detections_present",
+  "first_seen": "2026-02-23",
+  "analysis_date": "2026-02-28",
+  "notes": "Two embedded_payload_carved findings (jpeg carve kind). ExploitPrimitive score=4, confidence=Strong after Stage 3 intent uplift. Previously showed Heuristic confidence before accumulation fix."
+}
