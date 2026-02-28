@@ -261,6 +261,41 @@
         "intent DataExfiltration or Phishing present",
         "annotation_action_chain or passive_external_resource_fetch present"
       ]
+    },
+    {
+      "path": "jbig2-zeroclick-cve2021-30860-1c8abb3a.pdf",
+      "sha256": "1c8abb3abe62b99d85037f31c9e3cdc424cda2efe3ab8436062090fc1e9cb341",
+      "source_path": "tmp/corpus/mwb-latest/1c8abb3abe62b99d85037f31c9e3cdc424cda2efe3ab8436062090fc1e9cb341.pdf",
+      "regression_targets": [
+        "image.zero_click_jbig2 High/Strong x5 (CVE-2021-30860)",
+        "decoder_risk_present High/Probable x5 (JBIG2Decode)",
+        "ExploitPrimitive intent bucket fires",
+        "Phishing intent bucket fires (invisible text overlays)",
+        "Verdict Malicious"
+      ]
+    },
+    {
+      "path": "mshta-italian-sandbox-escape-ef6dff9b.pdf",
+      "sha256": "ef6dff9b48f9cc08ab6325b728e40f0444a9d1650d228a770105d601cc66c253",
+      "source_path": "tmp/corpus/mwb-latest/ef6dff9b48f9cc08ab6325b728e40f0444a9d1650d228a770105d601cc66c253.pdf",
+      "regression_targets": [
+        "launch_action_present High/Strong (target=mshta)",
+        "launch_external_program High/Strong",
+        "powershell_payload_present present",
+        "js_intent_user_interaction High/Strong (Italian lure)",
+        "SandboxEscape intent bucket score>=6",
+        "Verdict Malicious"
+      ]
+    },
+    {
+      "path": "url-bombing-25-annotation-9f4e98d1.pdf",
+      "sha256": "9f4e98d10a0951edaa4f4061b06cf3ff0ca87af4cd417fdb5a59e5dcad5ee0d0",
+      "source_path": "tmp/corpus/mwb-latest/9f4e98d10a0951edaa4f4061b06cf3ff0ca87af4cd417fdb5a59e5dcad5ee0d0.pdf",
+      "regression_targets": [
+        "annotation_action_chain >= 20 (25 expected)",
+        "DataExfiltration intent bucket score>=40",
+        "Verdict Suspicious or Malicious"
+      ]
     }
   ]
 }

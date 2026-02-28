@@ -15,10 +15,13 @@ The corresponding PDF files are tracked as test fixtures in:
 |---|---|---|---|
 | apt42-polyglot-pdf-zip-pe | polyglot-dropper | Malicious | APT42 |
 | booking-js-phishing | js-credential-phishing | Suspicious | Unknown |
+| jbig2-zeroclick-cve2021-30860 | image-codec-exploit | Malicious | Unknown |
 | modern-gated-supplychain | supply-chain-update-vector | Suspicious | Unknown |
 | modern-openaction-staged | staged-openaction-exploit | Suspicious | Unknown |
 | modern-renderer-revision | renderer-divergence-revision-shadow | Suspicious | Unknown |
+| mshta-italian-sandbox-escape | mshta-powershell-downloader | Malicious | Unknown (Italian campaign) |
 | romcom-embedded-payload | embedded-payload-dropper | Suspicious | RomCom |
+| url-bombing-25-annotation | annotation-url-bombing | Suspicious | Unknown |
 
 ## Adding a New Case Study
 

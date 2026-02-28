@@ -1066,3 +1066,168 @@ fn cov6_entropy_clustering_absent_without_deep() {
         "entropy_high_object_ratio must not fire when deep=false"
     );
 }
+
+#[test]
+fn jbig2_zeroclick_cve2021_30860_detections_present() {
+    // JBIG2 zero-click exploit (CVE-2021-30860 / FORCEDENTRY pattern).
+    // Five JBIG2 XObject streams with extreme full-page strip dimensions targeting the image
+    // codec decoder. Dual-use: invisible text overlays provide phishing context.
+    let report = scan_corpus_fixture("jbig2-zeroclick-cve2021-30860-1c8abb3a.pdf");
+
+    // CVE-2021-30860 pattern: extreme JBIG2 strip dimensions (zero-click trigger)
+    let zero_click_count = report
+        .findings
+        .iter()
+        .filter(|f| f.kind == "image.zero_click_jbig2")
+        .count();
+    assert!(
+        zero_click_count >= 5,
+        "drift_guard: expected >= 5 image.zero_click_jbig2 findings, got {zero_click_count}"
+    );
+
+    // All zero-click findings must be High/Strong
+    for f in report.findings.iter().filter(|f| f.kind == "image.zero_click_jbig2") {
+        assert_eq!(
+            f.severity,
+            sis_pdf_core::model::Severity::High,
+            "drift_guard: image.zero_click_jbig2 must be High severity"
+        );
+        assert_eq!(
+            f.confidence,
+            sis_pdf_core::model::Confidence::Strong,
+            "drift_guard: image.zero_click_jbig2 must be Strong confidence"
+        );
+        assert_eq!(
+            f.meta.get("cve").map(String::as_str),
+            Some("CVE-2021-30860"),
+            "drift_guard: image.zero_click_jbig2 must carry CVE-2021-30860 tag"
+        );
+    }
+
+    // Decoder risk findings (JBIG2Decode filter is High risk)
+    let decoder_risk_count = report
+        .findings
+        .iter()
+        .filter(|f| f.kind == "decoder_risk_present")
+        .count();
+    assert!(
+        decoder_risk_count >= 5,
+        "drift_guard: expected >= 5 decoder_risk_present findings, got {decoder_risk_count}"
+    );
+
+    // ExploitPrimitive intent must fire (decoder risks + carved payload)
+    assert_intent_bucket(&report, "ExploitPrimitive");
+    let exploit = intent_bucket(&report, "ExploitPrimitive");
+    assert!(
+        exploit.score >= 10,
+        "drift_guard: ExploitPrimitive score must be >= 10, got {}",
+        exploit.score
+    );
+
+    // Phishing intent must fire (invisible text overlays on exploit pages)
+    assert_intent_bucket(&report, "Phishing");
+
+    // Verdict must be Malicious
+    let verdict = report.verdict.as_ref().expect("verdict present");
+    assert_eq!(
+        verdict.label, "Malicious",
+        "drift_guard: JBIG2 zero-click verdict must be Malicious, got: {}",
+        verdict.label
+    );
+}
+
+#[test]
+fn mshta_italian_sandbox_escape_detections_present() {
+    // mshta-based sandbox escape with Italian-language social engineering lure.
+    // Attack chain: PDF open -> Italian JS alert -> OpenAction -> Launch(mshta) ->
+    // PowerShell -ep Bypass -> IEX(IrM blogspot.com C2 URL).
+    let report = scan_corpus_fixture("mshta-italian-sandbox-escape-ef6dff9b.pdf");
+
+    // Launch action targeting mshta (sandbox escape primitive)
+    let launch = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "launch_action_present")
+        .expect("drift_guard: launch_action_present must be present");
+    assert_eq!(
+        launch.severity,
+        sis_pdf_core::model::Severity::High,
+        "drift_guard: launch_action_present must be High severity"
+    );
+    assert_eq!(
+        launch.meta.get("launch.target_path").map(String::as_str),
+        Some("mshta"),
+        "drift_guard: launch target must be mshta"
+    );
+
+    // External program launch (mshta with javascript: URL scheme)
+    assert_finding_kind_present(&report, "launch_external_program");
+
+    // PowerShell payload indicators embedded in the mshta parameter
+    assert_finding_kind_present(&report, "powershell_payload_present");
+
+    // Italian social engineering alert
+    let js_lure = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "js_intent_user_interaction")
+        .expect("drift_guard: js_intent_user_interaction must be present");
+    assert_eq!(
+        js_lure.severity,
+        sis_pdf_core::model::Severity::High,
+        "drift_guard: js_intent_user_interaction must be High severity"
+    );
+
+    // SandboxEscape intent must fire at meaningful score
+    assert_intent_bucket(&report, "SandboxEscape");
+    let escape = intent_bucket(&report, "SandboxEscape");
+    assert!(
+        escape.score >= 6,
+        "drift_guard: SandboxEscape score must be >= 6, got {}",
+        escape.score
+    );
+
+    // Verdict must be Malicious
+    let verdict = report.verdict.as_ref().expect("verdict present");
+    assert_eq!(
+        verdict.label, "Malicious",
+        "drift_guard: mshta sandbox escape verdict must be Malicious, got: {}",
+        verdict.label
+    );
+}
+
+#[test]
+fn url_bombing_25_annotation_detections_present() {
+    // URL bombing via mass annotation injection: 25 link annotations pointing to 25 distinct
+    // external domains. Image-only content hides the annotation layer. DataExfiltration intent
+    // fires at score=50 (25 URI findings x2 weight each).
+    let report = scan_corpus_fixture("url-bombing-25-annotation-9f4e98d1.pdf");
+
+    // Mass annotation injection: at least 20 annotation_action_chain findings
+    let annotation_count = report
+        .findings
+        .iter()
+        .filter(|f| f.kind == "annotation_action_chain")
+        .count();
+    assert!(
+        annotation_count >= 20,
+        "drift_guard: expected >= 20 annotation_action_chain findings (25 expected), got {annotation_count}"
+    );
+
+    // DataExfiltration intent must fire at high score (25 URIs * 2 = 50)
+    assert_intent_bucket(&report, "DataExfiltration");
+    let exfil = intent_bucket(&report, "DataExfiltration");
+    assert!(
+        exfil.score >= 40,
+        "drift_guard: DataExfiltration score must be >= 40 (URL bomb), got {}",
+        exfil.score
+    );
+
+    // Verdict must be Suspicious or Malicious
+    let verdict = report.verdict.as_ref().expect("verdict present");
+    assert!(
+        verdict.label == "Suspicious" || verdict.label == "Malicious",
+        "drift_guard: URL bombing verdict must be Suspicious or Malicious, got: {}",
+        verdict.label
+    );
+}

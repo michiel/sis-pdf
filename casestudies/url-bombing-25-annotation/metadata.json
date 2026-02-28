@@ -1,0 +1,35 @@
+{
+  "id": "url-bombing-25-annotation",
+  "filename": "url-bombing-25-annotation-9f4e98d1.pdf",
+  "sha256": "9f4e98d10a0951edaa4f4061b06cf3ff0ca87af4cd417fdb5a59e5dcad5ee0d0",
+  "fixture_path": "corpus_captured/url-bombing-25-annotation-9f4e98d1.pdf",
+  "source": "mwb-latest corpus (2026-02-23)",
+  "threat_actor": "Unknown",
+  "threat_family": "annotation-url-bombing",
+  "classification": "Suspicious",
+  "techniques": [
+    "annotation-mass-injection",
+    "uri-action-flooding",
+    "multi-domain-targeting",
+    "image-only-page",
+    "content-overlay-link",
+    "cmap-range-overlap"
+  ],
+  "mitre_attack": ["T1566.001", "T1598", "T1071.001"],
+  "detection_signals": [
+    "annotation_action_chain: medium/strong x25 (25 distinct domains)",
+    "composite.graph_evasion_with_execute: high/probable",
+    "content_image_only_page: medium/heuristic",
+    "content_overlay_link: medium/probable",
+    "embedded_payload_carved: medium/strong (XML)",
+    "font.cmap_range_overlap: medium/strong",
+    "resource.operator_usage_anomalous: medium/strong x2",
+    "object_reference_cycle: medium/strong"
+  ],
+  "intent_buckets": ["DataExfiltration", "Phishing", "ExploitPrimitive"],
+  "verdict": "Suspicious",
+  "regression_test": "url_bombing_25_annotation_detections_present",
+  "first_seen": "2026-02-23",
+  "analysis_date": "2026-02-28",
+  "notes": "25 annotation link actions pointing to 25 distinct domains including suspected phishing/malware distribution sites (aphroditeporntube.com, javhard.net, kusorape.com, ir-cdn.co, mchacks.net). Image-only page with content overlay link hides annotations from casual inspection. Critical chain architecture failure: produces 38 chains for 38 findings (1:1 ratio) with 0 edges per chain, including 25 separate chains for the 25 annotations. A mass annotation injection cluster should group all 25 URL findings into one chain. DataExfiltration intent correctly fires at score=50 (25 URI findings * 2 weight each) but the verdict stays Suspicious due to lack of exploit primitive elevation."
+}

@@ -1,0 +1,33 @@
+{
+  "id": "jbig2-zeroclick-cve2021-30860",
+  "filename": "jbig2-zeroclick-cve2021-30860-1c8abb3a.pdf",
+  "sha256": "1c8abb3abe62b99d85037f31c9e3cdc424cda2efe3ab8436062090fc1e9cb341",
+  "fixture_path": "corpus_captured/jbig2-zeroclick-cve2021-30860-1c8abb3a.pdf",
+  "source": "mwb-latest corpus (2026-02-23)",
+  "threat_actor": "Unknown",
+  "threat_family": "image-codec-exploit",
+  "classification": "Malicious",
+  "techniques": [
+    "jbig2-zero-click",
+    "cve-exploitation",
+    "image-dimension-manipulation",
+    "invisible-text-overlay",
+    "decoder-attack-surface"
+  ],
+  "mitre_attack": ["T1203", "T1566.001"],
+  "detection_signals": [
+    "image.zero_click_jbig2: high/strong x5 (CVE-2021-30860, extreme strip dimensions ~2555x3297)",
+    "decoder_risk_present: high/probable x5 (JBIG2Decode filter)",
+    "image.jbig2_present: low/probable x5",
+    "image.suspect_strip_dimensions: medium/probable x5",
+    "content_invisible_text: low/heuristic x5 (phishing overlay pages)",
+    "label_mismatch_stream_type: high/strong x5 (stream type mismatch)",
+    "embedded_payload_carved: info/strong (JPEG 380x708)"
+  ],
+  "intent_buckets": ["ExploitPrimitive", "Phishing"],
+  "verdict": "Malicious",
+  "regression_test": "jbig2_zeroclick_cve2021_30860_detections_present",
+  "first_seen": "2026-02-23",
+  "analysis_date": "2026-02-28",
+  "notes": "Five JBIG2 streams each with extreme full-page dimensions (2551-2569 x 3257-3297) that match CVE-2021-30860 (FORCEDENTRY) exploitation pattern. Invisible text overlays on 5 pages indicate dual use: image codec exploit delivery combined with phishing content. Top chain scores 0.9 but all JBIG2 findings remain in separate singleton chains (chain grouping gap). Scan time ~645ms at scale due to 5 JBIG2 decode attempts."
+}
