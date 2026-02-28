@@ -101,7 +101,7 @@ jobs:
 
       - name: Upload GUI smoke artefacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gui-smoke-artifacts
           path: tmp/gui-smoke

@@ -37,7 +37,7 @@ jobs:
           zip -r "../../../${archive}" .
 
       - name: Upload artefact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sis-web
           path: sis-web-${{ github.ref_name }}.zip
