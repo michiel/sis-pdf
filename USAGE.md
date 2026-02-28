@@ -202,6 +202,31 @@ sis query findings.high file.pdf
 sis query "findings.kind js_present" file.pdf
 ```
 
+### Chain queries (requires scan output)
+
+`sis query <pdf> chains` returns 0 results because the query command re-parses
+the PDF structure but does not run the full detection pipeline — chains are
+synthesized during a scan and are not persisted.
+
+To inspect exploit chains, use `sis scan` with JSON output and filter the result:
+
+```bash
+# Get all chains for a file
+sis scan suspicious.pdf --json | jq '.chains[]'
+
+# Get chains sorted by score
+sis scan suspicious.pdf --json | jq '[.chains[] | {id, label, score, chain_completeness, findings: (.findings | length)}] | sort_by(-.score)'
+
+# Get the highest-completeness chain
+sis scan suspicious.pdf --json | jq '[.chains[]] | max_by(.chain_completeness)'
+```
+
+For batch scanning, chains are included in the JSON output per file:
+
+```bash
+sis scan --path samples/ --json | jq 'select(.type=="report") | {path, chains: (.chains | length)}'
+```
+
 ### Event trigger queries
 
 ```
