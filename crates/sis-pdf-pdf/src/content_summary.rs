@@ -181,15 +181,35 @@ pub struct CsgNode {
 /// Semantics of a graph node.
 #[derive(Debug, Clone)]
 pub enum CsgNodeKind {
-    TextBlock { strings: Vec<String>, fonts: Vec<String> },
-    XObjectRef { name: String, subtype: Option<String> },
-    InlineImage { width: Option<i32>, height: Option<i32> },
-    MarkedContent { tag: String },
-    GraphicsState { depth: usize },
+    TextBlock {
+        strings: Vec<String>,
+        fonts: Vec<String>,
+    },
+    XObjectRef {
+        name: String,
+        subtype: Option<String>,
+    },
+    InlineImage {
+        width: Option<i32>,
+        height: Option<i32>,
+    },
+    MarkedContent {
+        tag: String,
+    },
+    GraphicsState {
+        depth: usize,
+    },
     /// Collapsed run of path/colour operators.
-    OpGroup { label: String, count: usize },
+    OpGroup {
+        label: String,
+        count: usize,
+    },
     /// Resolved PDF object (font, XObject, ExtGState, …).
-    PdfObject { obj: u32, gen: u16, obj_type: String },
+    PdfObject {
+        obj: u32,
+        gen: u16,
+        obj_type: String,
+    },
 }
 
 /// Directed edge in a `ContentStreamGraph`.
@@ -346,10 +366,8 @@ impl<'a> Summariser<'a> {
                 "BT" => {
                     let span_start = op.span.start;
                     let (text_ops, end_idx) = collect_until_et(ops, i + 1);
-                    let (annotated, fonts, strings) =
-                        self.process_text_ops(text_ops);
-                    let span_end =
-                        ops.get(end_idx).map(|o| o.span.end).unwrap_or(span_start);
+                    let (annotated, fonts, strings) = self.process_text_ops(text_ops);
+                    let span_end = ops.get(end_idx).map(|o| o.span.end).unwrap_or(span_start);
                     blocks.push(ContentBlock::TextObject {
                         ops: annotated,
                         fonts,
@@ -370,15 +388,13 @@ impl<'a> Summariser<'a> {
                     let resource_name = operand_name(&op.operands).unwrap_or_default();
                     if !resource_name.is_empty() {
                         let key_bytes = resource_name.as_bytes();
-                        let target_ref =
-                            self.resolve_resource(key_bytes, b"/XObject");
+                        let target_ref = self.resolve_resource(key_bytes, b"/XObject");
                         let subtype = target_ref.and_then(|r| self.xobject_subtype(r));
                         match subtype.as_deref() {
                             Some("Image") => self.stats.image_invoke_count += 1,
                             Some("Form") => {
                                 self.stats.form_xobject_invoke_count += 1;
-                                self.stats.do_call_depth =
-                                    self.stats.form_xobject_invoke_count;
+                                self.stats.do_call_depth = self.stats.form_xobject_invoke_count;
                             }
                             _ => {}
                         }
@@ -401,8 +417,7 @@ impl<'a> Summariser<'a> {
                     let span_start = op.span.start;
                     let (width, height, color_space, end_idx) =
                         extract_inline_image_attrs(ops, i + 1);
-                    let span_end =
-                        ops.get(end_idx).map(|o| o.span.end).unwrap_or(span_start);
+                    let span_end = ops.get(end_idx).map(|o| o.span.end).unwrap_or(span_start);
                     blocks.push(ContentBlock::InlineImage {
                         width,
                         height,
@@ -423,8 +438,7 @@ impl<'a> Summariser<'a> {
                     self.stats.marked_content_depth_max =
                         self.stats.marked_content_depth_max.max(self.mc_depth);
                     let span_start = op.span.start;
-                    let tag = operand_name(&op.operands)
-                        .unwrap_or_else(|| "/Unknown".to_string());
+                    let tag = operand_name(&op.operands).unwrap_or_else(|| "/Unknown".to_string());
                     let properties = if op.op == "BDC" {
                         op.operands.get(1).map(|o| format!("{:?}", o))
                     } else {
@@ -432,8 +446,7 @@ impl<'a> Summariser<'a> {
                     };
                     let (mc_ops, end_idx) = collect_until_emc(ops, i + 1, 0);
                     let children = self.process_slice(mc_ops, depth + 1);
-                    let span_end =
-                        ops.get(end_idx).map(|o| o.span.end).unwrap_or(span_start);
+                    let span_end = ops.get(end_idx).map(|o| o.span.end).unwrap_or(span_start);
                     self.mc_depth -= 1;
                     blocks.push(ContentBlock::MarkedContent {
                         tag,
@@ -476,10 +489,7 @@ impl<'a> Summariser<'a> {
                     let run_len = run_end - run_start;
                     let run_ops: Vec<AnnotatedOp> = ops[run_start..run_end]
                         .iter()
-                        .map(|o| AnnotatedOp {
-                            op: o.clone(),
-                            resolved_ref: None,
-                        })
+                        .map(|o| AnnotatedOp { op: o.clone(), resolved_ref: None })
                         .collect();
                     if run_len >= OPGROUP_COLLAPSE_RUN {
                         blocks.push(ContentBlock::Ops(run_ops));
@@ -497,8 +507,8 @@ impl<'a> Summariser<'a> {
 
     fn count_path_colour_op(&mut self, op: &ContentOp) {
         match op.op.as_str() {
-            "m" | "l" | "c" | "v" | "y" | "h" | "re" | "S" | "s" | "f" | "F" | "B" | "B*"
-            | "b" | "b*" | "n" => {
+            "m" | "l" | "c" | "v" | "y" | "h" | "re" | "S" | "s" | "f" | "F" | "B" | "B*" | "b"
+            | "b*" | "n" => {
                 self.stats.path_op_count += 1;
             }
             _ => {}
@@ -556,8 +566,9 @@ impl<'a> Summariser<'a> {
                 "Tz" => {
                     if let Some(v) = first_number(&op.operands) {
                         if v.abs() < f32::EPSILON {
-                            self.anomalies
-                                .push(ContentStreamAnomaly::ZeroScaleText { position: op.span.start });
+                            self.anomalies.push(ContentStreamAnomaly::ZeroScaleText {
+                                position: op.span.start,
+                            });
                         }
                     }
                 }
@@ -661,7 +672,15 @@ pub fn summarise_xobject_tree(
     visited: &mut HashSet<(u32, u16)>,
 ) -> RecursiveContentSummary {
     visited.insert(stream_ref);
-    let root = summarise_stream(bytes, truncated, stream_ref, page_ref, raw_stream_offset, resources, graph);
+    let root = summarise_stream(
+        bytes,
+        truncated,
+        stream_ref,
+        page_ref,
+        raw_stream_offset,
+        resources,
+        graph,
+    );
     let mut xobject_children = HashMap::new();
     if depth_limit > 0 {
         collect_form_xobject_children(&root, graph, 0, depth_limit, visited, &mut xobject_children);
@@ -685,7 +704,14 @@ fn collect_form_xobject_children(
     if depth >= depth_limit {
         return;
     }
-    collect_form_xobject_children_in_blocks(&summary.blocks, graph, depth, depth_limit, visited, out);
+    collect_form_xobject_children_in_blocks(
+        &summary.blocks,
+        graph,
+        depth,
+        depth_limit,
+        visited,
+        out,
+    );
 }
 
 fn collect_form_xobject_children_in_blocks(
@@ -717,7 +743,9 @@ fn collect_form_xobject_children_in_blocks(
                 let raw_stream_offset = stream.data_span.start;
                 // Extract Form XObject's own /Resources.
                 let form_resources = get_stream_resources(graph, stream);
-                let Ok(decoded) = crate::decode::decode_stream(graph.bytes, stream, MAX_XOBJECT_DECODE_BYTES) else {
+                let Ok(decoded) =
+                    crate::decode::decode_stream(graph.bytes, stream, MAX_XOBJECT_DECODE_BYTES)
+                else {
                     continue;
                 };
                 let child_summary = summarise_stream(
@@ -742,10 +770,24 @@ fn collect_form_xobject_children_in_blocks(
                 );
             }
             ContentBlock::GraphicsState { children, .. } => {
-                collect_form_xobject_children_in_blocks(children, graph, depth, depth_limit, visited, out);
+                collect_form_xobject_children_in_blocks(
+                    children,
+                    graph,
+                    depth,
+                    depth_limit,
+                    visited,
+                    out,
+                );
             }
             ContentBlock::MarkedContent { children, .. } => {
-                collect_form_xobject_children_in_blocks(children, graph, depth, depth_limit, visited, out);
+                collect_form_xobject_children_in_blocks(
+                    children,
+                    graph,
+                    depth,
+                    depth_limit,
+                    visited,
+                    out,
+                );
             }
             _ => {}
         }
@@ -911,11 +953,7 @@ fn add_blocks_to_graph(
         }
         // Nesting edge from parent.
         if let Some(p) = parent_id {
-            edges.push(CsgEdge {
-                from: p.to_string(),
-                to: id.clone(),
-                kind: CsgEdgeKind::Nesting,
-            });
+            edges.push(CsgEdge { from: p.to_string(), to: id.clone(), kind: CsgEdgeKind::Nesting });
         }
         // Resource reference edges.
         for (target_ref, obj_type) in resource_edges {
@@ -924,11 +962,7 @@ fn add_blocks_to_graph(
             if !nodes.iter().any(|n| n.id == obj_id) {
                 nodes.push(CsgNode {
                     id: obj_id.clone(),
-                    kind: CsgNodeKind::PdfObject {
-                        obj: target_ref.0,
-                        gen: target_ref.1,
-                        obj_type,
-                    },
+                    kind: CsgNodeKind::PdfObject { obj: target_ref.0, gen: target_ref.1, obj_type },
                     sequence: *seq,
                     span_start: 0,
                     span_end: 0,
@@ -936,16 +970,20 @@ fn add_blocks_to_graph(
                 });
                 *seq += 1;
             }
-            edges.push(CsgEdge {
-                from: id.clone(),
-                to: obj_id,
-                kind: CsgEdgeKind::ResourceRef,
-            });
+            edges.push(CsgEdge { from: id.clone(), to: obj_id, kind: CsgEdgeKind::ResourceRef });
         }
 
         // Add children blocks with nesting edges.
         if !children.is_empty() {
-            add_blocks_to_graph(children, Some(&id), nodes, edges, seq, anomaly_positions, depth + 1);
+            add_blocks_to_graph(
+                children,
+                Some(&id),
+                nodes,
+                edges,
+                seq,
+                anomaly_positions,
+                depth + 1,
+            );
         }
 
         prev_id = Some(id);
@@ -966,10 +1004,8 @@ fn block_to_graph_parts<'a>(
     match block {
         ContentBlock::TextObject { ops: _, fonts, strings, span_start, span_end } => {
             let font_names: Vec<String> = fonts.iter().map(|(n, _)| n.clone()).collect();
-            let resource_edges: Vec<((u32, u16), String)> = fonts
-                .iter()
-                .filter_map(|(_, r)| r.map(|rf| (rf, "font".to_string())))
-                .collect();
+            let resource_edges: Vec<((u32, u16), String)> =
+                fonts.iter().filter_map(|(_, r)| r.map(|rf| (rf, "font".to_string()))).collect();
             (
                 CsgNodeKind::TextBlock {
                     strings: strings.iter().take(5).cloned().collect(),
@@ -999,10 +1035,7 @@ fn block_to_graph_parts<'a>(
                 .map(|r| vec![(r, subtype.as_deref().unwrap_or("xobject").to_string())])
                 .unwrap_or_default();
             (
-                CsgNodeKind::XObjectRef {
-                    name: resource_name.clone(),
-                    subtype: subtype.clone(),
-                },
+                CsgNodeKind::XObjectRef { name: resource_name.clone(), subtype: subtype.clone() },
                 *span_start,
                 *span_end,
                 &[],
@@ -1027,18 +1060,8 @@ fn block_to_graph_parts<'a>(
             let count = ops.len();
             let span_start = ops.first().map(|o| o.op.span.start).unwrap_or(0);
             let span_end = ops.last().map(|o| o.op.span.end).unwrap_or(0);
-            let label = if count == 1 {
-                ops[0].op.op.clone()
-            } else {
-                format!("{} ops", count)
-            };
-            (
-                CsgNodeKind::OpGroup { label, count },
-                span_start,
-                span_end,
-                &[],
-                vec![],
-            )
+            let label = if count == 1 { ops[0].op.op.clone() } else { format!("{} ops", count) };
+            (CsgNodeKind::OpGroup { label, count }, span_start, span_end, &[], vec![])
         }
     }
 }
@@ -1095,11 +1118,7 @@ fn node_dot_label(node: &CsgNode) -> String {
     match &node.kind {
         CsgNodeKind::TextBlock { strings, fonts } => {
             let font_str = fonts.first().cloned().unwrap_or_default();
-            let text_preview: String = strings
-                .iter()
-                .flat_map(|s| s.chars())
-                .take(30)
-                .collect();
+            let text_preview: String = strings.iter().flat_map(|s| s.chars()).take(30).collect();
             format!("Text\\n{}\\n\"{}\"", font_str, text_preview)
         }
         CsgNodeKind::XObjectRef { name, subtype } => {
@@ -1226,8 +1245,7 @@ fn edge_kind_str(kind: CsgEdgeKind) -> &'static str {
 pub fn summary_to_json(summary: &ContentStreamSummary) -> serde_json::Value {
     use serde_json::json;
 
-    let blocks_json: Vec<serde_json::Value> =
-        summary.blocks.iter().map(block_to_json).collect();
+    let blocks_json: Vec<serde_json::Value> = summary.blocks.iter().map(block_to_json).collect();
 
     let anomalies_json: Vec<serde_json::Value> =
         summary.anomalies.iter().map(anomaly_to_json).collect();
@@ -1294,7 +1312,13 @@ fn block_to_json(block: &ContentBlock) -> serde_json::Value {
                 "children": children_json,
             })
         }
-        ContentBlock::XObjectInvoke { resource_name, target_ref, subtype, span_start, span_end } => {
+        ContentBlock::XObjectInvoke {
+            resource_name,
+            target_ref,
+            subtype,
+            span_start,
+            span_end,
+        } => {
             json!({
                 "type": "XObjectInvoke",
                 "name": resource_name,
@@ -1370,10 +1394,8 @@ fn anomaly_to_json(a: &ContentStreamAnomaly) -> serde_json::Value {
 pub fn summary_to_text(summary: &ContentStreamSummary) -> String {
     let mut out = String::new();
     let (sr_obj, sr_gen) = summary.stream_ref;
-    let page_str = summary
-        .page_ref
-        .map(|(o, g)| format!("  (page obj {} {})", o, g))
-        .unwrap_or_default();
+    let page_str =
+        summary.page_ref.map(|(o, g)| format!("  (page obj {} {})", o, g)).unwrap_or_default();
     out.push_str(&format!("Content stream {} {}{}\n", sr_obj, sr_gen, page_str));
     let s = &summary.stats;
     out.push_str(&format!(
@@ -1404,9 +1426,7 @@ fn anomaly_text(a: &ContentStreamAnomaly) -> String {
         ContentStreamAnomaly::GraphicsStateUnderflow { op, position } => {
             format!("GraphicsStateUnderflow: {} at offset {}", op, position)
         }
-        ContentStreamAnomaly::TextObjectUnterminatedAtEof => {
-            "TextObjectUnterminatedAtEof".into()
-        }
+        ContentStreamAnomaly::TextObjectUnterminatedAtEof => "TextObjectUnterminatedAtEof".into(),
         ContentStreamAnomaly::UnknownOperator { op, position } => {
             format!("UnknownOperator: {} at offset {}", op, position)
         }
@@ -1460,7 +1480,13 @@ fn render_block_text(out: &mut String, block: &ContentBlock, idx: usize, depth: 
                 render_block_text(out, child, ci, depth + 1);
             }
         }
-        ContentBlock::XObjectInvoke { resource_name, target_ref, subtype, span_start, span_end } => {
+        ContentBlock::XObjectInvoke {
+            resource_name,
+            target_ref,
+            subtype,
+            span_start,
+            span_end,
+        } => {
             let ref_str = match target_ref {
                 Some((o, g)) => format!("-> {} {} R", o, g),
                 None => "(unresolved)".into(),
@@ -1503,7 +1529,11 @@ fn render_block_text(out: &mut String, block: &ContentBlock, idx: usize, depth: 
 
 /// Collect ops from `start` until the balancing `Q` or end-of-slice.
 /// Returns `(ops_slice, index_of_Q_or_past_end)`.
-fn collect_until_q<'a>(ops: &'a [ContentOp], start: usize, depth: usize) -> (&'a [ContentOp], usize) {
+fn collect_until_q<'a>(
+    ops: &'a [ContentOp],
+    start: usize,
+    depth: usize,
+) -> (&'a [ContentOp], usize) {
     let mut i = start;
     let mut d = depth;
     while i < ops.len() {
@@ -1570,7 +1600,10 @@ fn extract_inline_image_attrs(
     while i < ops.len() {
         let op = &ops[i];
         match op.op.as_str() {
-            "ID" => { i += 1; continue; }
+            "ID" => {
+                i += 1;
+                continue;
+            }
             "EI" => return (width, height, color_space, i),
             "/W" | "/Width" => {
                 if let Some(ContentOperand::Number(n)) = op.operands.first() {
@@ -1620,10 +1653,7 @@ fn extract_string_operand(operands: &[ContentOperand]) -> Option<String> {
             if s.starts_with('<') && !s.starts_with("<<") {
                 Some(format!("<{}>", s.trim_matches(|c| c == '<' || c == '>')))
             } else {
-                let inner: String = s
-                    .trim_start_matches('(')
-                    .trim_end_matches(')')
-                    .to_string();
+                let inner: String = s.trim_start_matches('(').trim_end_matches(')').to_string();
                 let truncated: String = inner.chars().take(200).collect();
                 Some(truncated)
             }
@@ -1653,7 +1683,9 @@ fn extract_tj_array(operands: &[ContentOperand]) -> (Vec<String>, Option<f32>) {
 
     while i < bytes.len() {
         // Skip whitespace.
-        while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t' || bytes[i] == b'\n' || bytes[i] == b'\r') {
+        while i < bytes.len()
+            && (bytes[i] == b' ' || bytes[i] == b'\t' || bytes[i] == b'\n' || bytes[i] == b'\r')
+        {
             i += 1;
         }
         if i >= bytes.len() {
@@ -1919,7 +1951,10 @@ mod tests {
     fn detect_graphics_state_underflow() {
         let stream = b"Q";
         let s = summarise(stream);
-        assert!(s.anomalies.iter().any(|a| matches!(a, ContentStreamAnomaly::GraphicsStateUnderflow { .. })));
+        assert!(s
+            .anomalies
+            .iter()
+            .any(|a| matches!(a, ContentStreamAnomaly::GraphicsStateUnderflow { .. })));
     }
 
     #[test]
@@ -1952,7 +1987,9 @@ mod tests {
         let stream = b"BT /F1 12 Tf 3 Tr (hidden) Tj ET";
         let s = summarise(stream);
         assert!(
-            s.anomalies.iter().any(|a| matches!(a, ContentStreamAnomaly::InvisibleRenderingMode { .. })),
+            s.anomalies
+                .iter()
+                .any(|a| matches!(a, ContentStreamAnomaly::InvisibleRenderingMode { .. })),
             "expected InvisibleRenderingMode anomaly"
         );
     }
@@ -1982,7 +2019,9 @@ mod tests {
         let stream = b"BADOP";
         let s = summarise(stream);
         assert!(
-            s.anomalies.iter().any(|a| matches!(a, ContentStreamAnomaly::UnknownOperator { op, .. } if op == "BADOP")),
+            s.anomalies.iter().any(
+                |a| matches!(a, ContentStreamAnomaly::UnknownOperator { op, .. } if op == "BADOP")
+            ),
             "unknown op outside BX/EX should be flagged"
         );
     }
@@ -1991,10 +2030,14 @@ mod tests {
     fn multiple_fonts_in_single_text_object() {
         let stream = b"BT /F1 12 Tf (hello) Tj /F2 10 Tf (world) Tj ET";
         let s = summarise(stream);
-        let text_blocks: Vec<_> = s.blocks.iter().filter_map(|b| match b {
-            ContentBlock::TextObject { fonts, .. } => Some(fonts.clone()),
-            _ => None,
-        }).collect();
+        let text_blocks: Vec<_> = s
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::TextObject { fonts, .. } => Some(fonts.clone()),
+                _ => None,
+            })
+            .collect();
         assert_eq!(text_blocks.len(), 1);
         assert_eq!(text_blocks[0].len(), 2, "should have two font entries");
         assert_eq!(text_blocks[0][0].0, "/F1");
@@ -2006,7 +2049,9 @@ mod tests {
         let stream = b"BT /F1 12 Tf (text) Tj";
         let s = summarise(stream);
         assert!(
-            s.anomalies.iter().any(|a| matches!(a, ContentStreamAnomaly::TextObjectUnterminatedAtEof)),
+            s.anomalies
+                .iter()
+                .any(|a| matches!(a, ContentStreamAnomaly::TextObjectUnterminatedAtEof)),
             "expected TextObjectUnterminatedAtEof anomaly"
         );
     }
@@ -2026,8 +2071,10 @@ mod tests {
         // d0 and d1 are the CharProc width-setting operators
         let stream = b"10 0 d0 0.5 g 0 0 10 10 re f";
         let s = summarise(stream);
-        assert!(s.anomalies.iter().all(|a| !matches!(a, ContentStreamAnomaly::UnknownOperator { .. })),
-            "d0 should not be flagged as unknown");
+        assert!(
+            s.anomalies.iter().all(|a| !matches!(a, ContentStreamAnomaly::UnknownOperator { .. })),
+            "d0 should not be flagged as unknown"
+        );
         assert!(!s.blocks.is_empty());
     }
 
@@ -2064,17 +2111,8 @@ mod tests {
         let stream = b"BT /F1 12 Tf (Hello) Tj ET";
         let graph = empty_graph();
         let mut visited = HashSet::new();
-        let rcs = summarise_xobject_tree(
-            stream,
-            false,
-            (1, 0),
-            None,
-            0,
-            None,
-            &graph,
-            5,
-            &mut visited,
-        );
+        let rcs =
+            summarise_xobject_tree(stream, false, (1, 0), None, 0, None, &graph, 5, &mut visited);
         assert!(rcs.xobject_children.is_empty(), "no Form XObjects → empty children");
         assert_eq!(rcs.root.stream_ref, (1, 0));
     }
@@ -2085,17 +2123,8 @@ mod tests {
         let stream = b"/Fm0 Do";
         let graph = empty_graph();
         let mut visited = HashSet::new();
-        let rcs = summarise_xobject_tree(
-            stream,
-            false,
-            (1, 0),
-            None,
-            0,
-            None,
-            &graph,
-            0,
-            &mut visited,
-        );
+        let rcs =
+            summarise_xobject_tree(stream, false, (1, 0), None, 0, None, &graph, 0, &mut visited);
         // depth_limit=0 → no recursion
         assert!(rcs.xobject_children.is_empty());
     }
@@ -2108,17 +2137,8 @@ mod tests {
         let mut visited = HashSet::new();
         // Visit the root before calling; this simulates being called from within a cycle.
         let _ = visited.insert((1, 0));
-        let rcs = summarise_xobject_tree(
-            stream,
-            false,
-            (1, 0),
-            None,
-            0,
-            None,
-            &graph,
-            5,
-            &mut visited,
-        );
+        let rcs =
+            summarise_xobject_tree(stream, false, (1, 0), None, 0, None, &graph, 5, &mut visited);
         // Root is already visited; no panic, returns a summary.
         assert_eq!(rcs.root.stream_ref, (1, 0));
     }

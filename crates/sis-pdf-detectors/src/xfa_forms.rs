@@ -333,15 +333,10 @@ impl Detector for XfaFormDetector {
                             || signals
                                 .get("js.dynamic_eval_construction")
                                 .is_some_and(|v| v == "true");
-                        let has_obfuscation = signals
-                            .get("js.jsfuck_encoding")
-                            .is_some_and(|v| v == "true")
-                            || signals
-                                .get("js.jjencode_encoding")
-                                .is_some_and(|v| v == "true")
-                            || signals
-                                .get("js.aaencode_encoding")
-                                .is_some_and(|v| v == "true");
+                        let has_obfuscation =
+                            signals.get("js.jsfuck_encoding").is_some_and(|v| v == "true")
+                                || signals.get("js.jjencode_encoding").is_some_and(|v| v == "true")
+                                || signals.get("js.aaencode_encoding").is_some_and(|v| v == "true");
 
                         if has_eval {
                             let mut meta = base_meta.clone();

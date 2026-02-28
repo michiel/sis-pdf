@@ -390,10 +390,7 @@ fn corpus_captured_modern_gated_supply_chain_baseline_stays_stable() {
         object_context.chains.iter().any(|membership| membership.role == ObjectChainRole::Payload),
         "expected object 76 0 to preserve payload-role chain context"
     );
-    assert!(
-        !object_context.chains.is_empty(),
-        "expected object 76 0 to have chain membership"
-    );
+    assert!(!object_context.chains.is_empty(), "expected object 76 0 to have chain membership");
 }
 
 #[test]
@@ -685,7 +682,8 @@ fn corpus_captured_structural_signature_overrides_baseline_stays_stable() {
 
 fn scan_corpus_fixture(name: &str) -> sis_pdf_core::report::Report {
     let path = corpus_captured_dir().join(name);
-    let bytes = fs::read(&path).unwrap_or_else(|_| panic!("corpus fixture not found: {}", path.display()));
+    let bytes =
+        fs::read(&path).unwrap_or_else(|_| panic!("corpus fixture not found: {}", path.display()));
     let detectors = sis_pdf_detectors::default_detectors();
     sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts(), &detectors)
         .expect("scan should succeed")
@@ -828,12 +826,8 @@ fn font_heavy_objstm_has_font_findings() {
     );
 
     // Font findings must be present
-    let font_count =
-        report.findings.iter().filter(|f| f.kind.starts_with("font.")).count();
-    assert!(
-        font_count >= 1,
-        "drift_guard: font-heavy PDF must have font findings"
-    );
+    let font_count = report.findings.iter().filter(|f| f.kind.starts_with("font.")).count();
+    assert!(font_count >= 1, "drift_guard: font-heavy PDF must have font findings");
 
     // Verdict must be present
     assert!(report.verdict.is_some(), "verdict must be present");
@@ -885,8 +879,7 @@ fn cov1_colocated_decode_skipped_preserved_in_supply_chain_fixture() {
     // co-located with an image.colour_space_invalid finding on the same object.
     // COV-1 suppression should KEEP these (they provide context for the anomaly)
     // and NOT emit a suppression summary.
-    let bytes =
-        include_bytes!("fixtures/corpus_captured/modern-gated-supplychain-9ff24c46.pdf");
+    let bytes = include_bytes!("fixtures/corpus_captured/modern-gated-supplychain-9ff24c46.pdf");
     let detectors = sis_pdf_detectors::default_detectors();
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
         .expect("scan should succeed");
@@ -896,8 +889,7 @@ fn cov1_colocated_decode_skipped_preserved_in_supply_chain_fixture() {
         .findings
         .iter()
         .filter(|f| {
-            f.kind == "image.decode_skipped"
-                && f.meta.get("image.suppress_reason").is_some()
+            f.kind == "image.decode_skipped" && f.meta.get("image.suppress_reason").is_some()
         })
         .collect();
     assert!(
@@ -924,10 +916,7 @@ fn cov6_entropy_clustering_fires_on_apt42_polyglot_deep() {
     let finding = finding_by_kind(&report, "entropy_high_object_ratio");
     assert_eq!(finding.severity, sis_pdf_core::model::Severity::Low);
     assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Probable);
-    assert!(
-        finding.meta.get("entropy.ratio").is_some(),
-        "expected entropy.ratio metadata"
-    );
+    assert!(finding.meta.get("entropy.ratio").is_some(), "expected entropy.ratio metadata");
 }
 
 // ---------------------------------------------------------------------------
@@ -938,8 +927,7 @@ fn cov6_entropy_clustering_fires_on_apt42_polyglot_deep() {
 fn fog_netlify_phishing_detections_present() {
     // Fog campaign PDF: phishing lure linking to netlify-hosted ZIP with "/Pay" path.
     // Same file as secondary-invalid-trailer-6eb8.pdf (multi-purpose fixture).
-    let bytes =
-        include_bytes!("fixtures/corpus_captured/secondary-invalid-trailer-6eb8.pdf");
+    let bytes = include_bytes!("fixtures/corpus_captured/secondary-invalid-trailer-6eb8.pdf");
     let detectors = sis_pdf_detectors::default_detectors();
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
         .expect("scan should succeed");
@@ -949,10 +937,7 @@ fn fog_netlify_phishing_detections_present() {
     assert_eq!(uri_action.severity, sis_pdf_core::model::Severity::Low);
     assert_eq!(uri_action.confidence, sis_pdf_core::model::Confidence::Probable);
     let target = uri_action.meta.get("action.target").expect("action.target present");
-    assert!(
-        target.contains("netlify.app"),
-        "expected netlify.app in action target, got: {target}"
-    );
+    assert!(target.contains("netlify.app"), "expected netlify.app in action target, got: {target}");
     assert!(
         target.to_lowercase().contains("/pay"),
         "expected /Pay path in action target, got: {target}"
@@ -988,8 +973,7 @@ fn fog_netlify_phishing_detections_present() {
 fn decompression_bomb_dos_detections_present() {
     // Decompression bomb: 485:1 ratio stream, causes parser/memory exhaustion.
     // Same file as noisy-correlated-highrisk-11606.pdf (multi-purpose fixture).
-    let bytes =
-        include_bytes!("fixtures/corpus_captured/noisy-correlated-highrisk-11606.pdf");
+    let bytes = include_bytes!("fixtures/corpus_captured/noisy-correlated-highrisk-11606.pdf");
     let detectors = sis_pdf_detectors::default_detectors();
     // Use 64MB per-stream limit so the full 485:1 bomb stream (~26MB output) can be
     // measured accurately. opts() caps at 8MB which would cap the ratio at ~128.
@@ -1035,10 +1019,7 @@ fn decompression_bomb_dos_detections_present() {
     // DenialOfService intent bucket must fire
     assert_intent_bucket(&report, "DenialOfService");
     let dos_bucket = intent_bucket(&report, "DenialOfService");
-    assert!(
-        dos_bucket.score > 0,
-        "DenialOfService bucket score must be > 0"
-    );
+    assert!(dos_bucket.score > 0, "DenialOfService bucket score must be > 0");
 
     // Verdict must be Malicious or Suspicious
     let verdict = report.verdict.as_ref().expect("verdict present");
@@ -1052,15 +1033,13 @@ fn decompression_bomb_dos_detections_present() {
 #[test]
 fn cov6_entropy_clustering_absent_without_deep() {
     // With deep=false the entropy_clustering detector is Cost::Expensive and should be skipped.
-    let bytes =
-        fs::read(corpus_captured_dir().join("apt42-polyglot-pdf-zip-pe-6648302d.pdf"))
-            .expect("fixture exists");
+    let bytes = fs::read(corpus_captured_dir().join("apt42-polyglot-pdf-zip-pe-6648302d.pdf"))
+        .expect("fixture exists");
     let detectors = sis_pdf_detectors::default_detectors();
     let mut no_deep_opts = opts();
     no_deep_opts.deep = false;
-    let report =
-        sis_pdf_core::runner::run_scan_with_detectors(&bytes, no_deep_opts, &detectors)
-            .expect("scan should succeed");
+    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, no_deep_opts, &detectors)
+        .expect("scan should succeed");
     assert!(
         report.findings.iter().all(|f| f.kind != "entropy_high_object_ratio"),
         "entropy_high_object_ratio must not fire when deep=false"
@@ -1075,11 +1054,8 @@ fn jbig2_zeroclick_cve2021_30860_detections_present() {
     let report = scan_corpus_fixture("jbig2-zeroclick-cve2021-30860-1c8abb3a.pdf");
 
     // CVE-2021-30860 pattern: extreme JBIG2 strip dimensions (zero-click trigger)
-    let zero_click_count = report
-        .findings
-        .iter()
-        .filter(|f| f.kind == "image.zero_click_jbig2")
-        .count();
+    let zero_click_count =
+        report.findings.iter().filter(|f| f.kind == "image.zero_click_jbig2").count();
     assert!(
         zero_click_count >= 5,
         "drift_guard: expected >= 5 image.zero_click_jbig2 findings, got {zero_click_count}"
@@ -1105,11 +1081,8 @@ fn jbig2_zeroclick_cve2021_30860_detections_present() {
     }
 
     // Decoder risk findings (JBIG2Decode filter is High risk)
-    let decoder_risk_count = report
-        .findings
-        .iter()
-        .filter(|f| f.kind == "decoder_risk_present")
-        .count();
+    let decoder_risk_count =
+        report.findings.iter().filter(|f| f.kind == "decoder_risk_present").count();
     assert!(
         decoder_risk_count >= 5,
         "drift_guard: expected >= 5 decoder_risk_present findings, got {decoder_risk_count}"
@@ -1204,11 +1177,8 @@ fn url_bombing_25_annotation_detections_present() {
     let report = scan_corpus_fixture("url-bombing-25-annotation-9f4e98d1.pdf");
 
     // Mass annotation injection: at least 20 annotation_action_chain findings
-    let annotation_count = report
-        .findings
-        .iter()
-        .filter(|f| f.kind == "annotation_action_chain")
-        .count();
+    let annotation_count =
+        report.findings.iter().filter(|f| f.kind == "annotation_action_chain").count();
     assert!(
         annotation_count >= 20,
         "drift_guard: expected >= 20 annotation_action_chain findings (25 expected), got {annotation_count}"

@@ -31,5 +31,5 @@
   "regression_test": "url_bombing_25_annotation_detections_present",
   "first_seen": "2026-02-23",
   "analysis_date": "2026-02-28",
-  "notes": "25 annotation link actions pointing to 25 distinct domains including suspected phishing/malware distribution sites (aphroditeporntube.com, javhard.net, kusorape.com, ir-cdn.co, mchacks.net). Image-only page with content overlay link hides annotations from casual inspection. Critical chain architecture failure: produces 38 chains for 38 findings (1:1 ratio) with 0 edges per chain, including 25 separate chains for the 25 annotations. A mass annotation injection cluster should group all 25 URL findings into one chain. DataExfiltration intent correctly fires at score=50 (25 URI findings * 2 weight each) but the verdict stays Suspicious due to lack of exploit primitive elevation."
+  "notes": "25 annotation link actions point to 25 distinct domains, with image-only rendering and overlay links used as evasion. Post-uplift validation (2026-02-28): chain synthesis now emits `Annotation action cluster (25 links)` and total chain count dropped to 14 from the fragmented 38-chain baseline. Residual gap: ranking still favours `embedded_payload_carved` as top chain and cross-linking to content-overlay/image-only evasion findings is partial."
 }

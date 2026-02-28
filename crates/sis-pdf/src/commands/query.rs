@@ -639,71 +639,127 @@ pub fn parse_query(input: &str) -> Result<Query> {
             if let Some(rest) = input.strip_prefix("stream.content.json.recursive ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
-                    return Ok(Query::StreamContentOpsJson { obj, gen, recursive: true, with_findings: false });
+                    return Ok(Query::StreamContentOpsJson {
+                        obj,
+                        gen,
+                        recursive: true,
+                        with_findings: false,
+                    });
                 }
             }
             if let Some(rest) = input.strip_prefix("stream.content.json.findings ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
-                    return Ok(Query::StreamContentOpsJson { obj, gen, recursive: false, with_findings: true });
+                    return Ok(Query::StreamContentOpsJson {
+                        obj,
+                        gen,
+                        recursive: false,
+                        with_findings: true,
+                    });
                 }
             }
             if let Some(rest) = input.strip_prefix("stream.content.json ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
-                    return Ok(Query::StreamContentOpsJson { obj, gen, recursive: false, with_findings: false });
+                    return Ok(Query::StreamContentOpsJson {
+                        obj,
+                        gen,
+                        recursive: false,
+                        with_findings: false,
+                    });
                 }
             }
             if let Some(rest) = input.strip_prefix("stream.content.recursive ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
-                    return Ok(Query::StreamContentOps { obj, gen, recursive: true, with_findings: false });
+                    return Ok(Query::StreamContentOps {
+                        obj,
+                        gen,
+                        recursive: true,
+                        with_findings: false,
+                    });
                 }
             }
             if let Some(rest) = input.strip_prefix("stream.content.findings ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
-                    return Ok(Query::StreamContentOps { obj, gen, recursive: false, with_findings: true });
+                    return Ok(Query::StreamContentOps {
+                        obj,
+                        gen,
+                        recursive: false,
+                        with_findings: true,
+                    });
                 }
             }
             if let Some(rest) = input.strip_prefix("stream.content ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
-                    return Ok(Query::StreamContentOps { obj, gen, recursive: false, with_findings: false });
+                    return Ok(Query::StreamContentOps {
+                        obj,
+                        gen,
+                        recursive: false,
+                        with_findings: false,
+                    });
                 }
             }
             if let Some(rest) = input.strip_prefix("page.content.json.findings ") {
-                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                let idx = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
                 return Ok(Query::PageContentOpsJson { page_idx: idx, with_findings: true });
             }
             if let Some(rest) = input.strip_prefix("page.content.json ") {
-                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                let idx = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
                 return Ok(Query::PageContentOpsJson { page_idx: idx, with_findings: false });
             }
             if let Some(rest) = input.strip_prefix("page.content.findings ") {
-                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                let idx = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
                 return Ok(Query::PageContentOps { page_idx: idx, with_findings: true });
             }
             if let Some(rest) = input.strip_prefix("page.content ") {
-                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                let idx = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
                 return Ok(Query::PageContentOps { page_idx: idx, with_findings: false });
             }
             if let Some(rest) = input.strip_prefix("graph.content.json.recursive ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
                     return Ok(Query::GraphContentStreamJson { obj, gen, recursive: true });
                 }
@@ -711,7 +767,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
             if let Some(rest) = input.strip_prefix("graph.content.json ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
                     return Ok(Query::GraphContentStreamJson { obj, gen, recursive: false });
                 }
@@ -719,7 +777,9 @@ pub fn parse_query(input: &str) -> Result<Query> {
             if let Some(rest) = input.strip_prefix("graph.content.recursive ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
                     return Ok(Query::GraphContentStreamDot { obj, gen, recursive: true });
                 }
@@ -727,25 +787,39 @@ pub fn parse_query(input: &str) -> Result<Query> {
             if let Some(rest) = input.strip_prefix("graph.content ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if !parts.is_empty() {
-                    let obj = parts[0].parse::<u32>().map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
+                    let obj = parts[0]
+                        .parse::<u32>()
+                        .map_err(|_| anyhow!("Invalid object number: {}", parts[0]))?;
                     let gen = parts.get(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
                     return Ok(Query::GraphContentStreamDot { obj, gen, recursive: false });
                 }
             }
             if let Some(rest) = input.strip_prefix("graph.page.content.json.recursive ") {
-                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                let idx = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
                 return Ok(Query::GraphPageContentJson { page_idx: idx, recursive: true });
             }
             if let Some(rest) = input.strip_prefix("graph.page.content.json ") {
-                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                let idx = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
                 return Ok(Query::GraphPageContentJson { page_idx: idx, recursive: false });
             }
             if let Some(rest) = input.strip_prefix("graph.page.content.recursive ") {
-                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                let idx = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
                 return Ok(Query::GraphPageContentDot { page_idx: idx, recursive: true });
             }
             if let Some(rest) = input.strip_prefix("graph.page.content ") {
-                let idx = rest.trim().parse::<usize>().map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
+                let idx = rest
+                    .trim()
+                    .parse::<usize>()
+                    .map_err(|_| anyhow!("Invalid page index: {}", rest.trim()))?;
                 return Ok(Query::GraphPageContentDot { page_idx: idx, recursive: false });
             }
 
@@ -1710,7 +1784,8 @@ pub fn execute_query_with_context(
                 Ok(QueryResult::List(vec![text]))
             }
             Query::StreamContentOpsJson { obj, gen, recursive, with_findings } => {
-                let json = execute_stream_content_ops_json(ctx, *obj, *gen, *recursive, *with_findings)?;
+                let json =
+                    execute_stream_content_ops_json(ctx, *obj, *gen, *recursive, *with_findings)?;
                 Ok(QueryResult::Structure(json))
             }
             Query::PageContentOps { page_idx, with_findings } => {
@@ -7945,16 +8020,13 @@ fn list_detector_chains(
     _predicate: Option<&PredicateExpr>,
 ) -> Result<serde_json::Value> {
     let detectors = sis_pdf_detectors::default_detectors();
-    let report = match sis_pdf_core::runner::run_scan_with_detectors(
-        bytes,
-        options.clone(),
-        &detectors,
-    ) {
-        Ok(r) => r,
-        Err(_) => {
-            return Ok(serde_json::json!({"type": "chains", "count": 0, "chains": []}));
-        }
-    };
+    let report =
+        match sis_pdf_core::runner::run_scan_with_detectors(bytes, options.clone(), &detectors) {
+            Ok(r) => r,
+            Err(_) => {
+                return Ok(serde_json::json!({"type": "chains", "count": 0, "chains": []}));
+            }
+        };
     let count = report.chains.len();
     let chain_values: Vec<serde_json::Value> = report
         .chains
@@ -9070,23 +9142,24 @@ fn decode_and_summarise_stream(
 ) -> Result<sis_pdf_pdf::content_summary::ContentStreamSummary> {
     use sis_pdf_pdf::content_summary::summarise_stream;
 
-    let entry = ctx.graph.get_object(obj, gen).ok_or_else(|| {
-        anyhow!("Object {} {} not found", obj, gen)
-    })?;
+    let entry = ctx
+        .graph
+        .get_object(obj, gen)
+        .ok_or_else(|| anyhow!("Object {} {} not found", obj, gen))?;
     let stream = match &entry.atom {
         PdfAtom::Stream(st) => st.clone(),
         _ => anyhow::bail!("Object {} {} is not a stream", obj, gen),
     };
     let raw_stream_offset = stream.data_span.start;
-    let decoded = ctx.decoded.get_or_decode(ctx.bytes, &stream).map_err(|e| {
-        anyhow!("Failed to decode stream {} {}: {}", obj, gen, e)
-    })?;
+    let decoded = ctx
+        .decoded
+        .get_or_decode(ctx.bytes, &stream)
+        .map_err(|e| anyhow!("Failed to decode stream {} {}: {}", obj, gen, e))?;
 
     // Resolve resources: if we have a page_ref, use resolve_page_resources; otherwise None.
     // We hold the resources as an owned PdfDict to satisfy lifetime requirements.
-    let owned_resources = page_ref.and_then(|(po, pg)| {
-        sis_pdf_core::page_tree::resolve_page_resources(&ctx.graph, po, pg)
-    });
+    let owned_resources = page_ref
+        .and_then(|(po, pg)| sis_pdf_core::page_tree::resolve_page_resources(&ctx.graph, po, pg));
 
     let summary = summarise_stream(
         &decoded.data,
@@ -9110,20 +9183,21 @@ fn decode_and_summarise_xobject_tree(
     use sis_pdf_pdf::content_summary::summarise_xobject_tree;
     use std::collections::HashSet;
 
-    let entry = ctx.graph.get_object(obj, gen).ok_or_else(|| {
-        anyhow!("Object {} {} not found", obj, gen)
-    })?;
+    let entry = ctx
+        .graph
+        .get_object(obj, gen)
+        .ok_or_else(|| anyhow!("Object {} {} not found", obj, gen))?;
     let stream = match &entry.atom {
         PdfAtom::Stream(st) => st.clone(),
         _ => anyhow::bail!("Object {} {} is not a stream", obj, gen),
     };
     let raw_stream_offset = stream.data_span.start;
-    let decoded = ctx.decoded.get_or_decode(ctx.bytes, &stream).map_err(|e| {
-        anyhow!("Failed to decode stream {} {}: {}", obj, gen, e)
-    })?;
-    let owned_resources = page_ref.and_then(|(po, pg)| {
-        sis_pdf_core::page_tree::resolve_page_resources(&ctx.graph, po, pg)
-    });
+    let decoded = ctx
+        .decoded
+        .get_or_decode(ctx.bytes, &stream)
+        .map_err(|e| anyhow!("Failed to decode stream {} {}: {}", obj, gen, e))?;
+    let owned_resources = page_ref
+        .and_then(|(po, pg)| sis_pdf_core::page_tree::resolve_page_resources(&ctx.graph, po, pg));
 
     let mut visited = HashSet::new();
     let rcs = summarise_xobject_tree(
@@ -9150,8 +9224,12 @@ fn correlate_stream_findings_for_cli(
 ) -> Result<Vec<sis_pdf_core::content_correlation::CorrelatedStreamFinding>> {
     use sis_pdf_core::content_correlation::correlate_content_stream_findings;
     // Get the raw stream offset for evidence matching.
-    let raw_stream_offset = ctx.graph.get_object(obj, gen)
-        .and_then(|e| if let PdfAtom::Stream(st) = &e.atom { Some(st.data_span.start) } else { None })
+    let raw_stream_offset = ctx
+        .graph
+        .get_object(obj, gen)
+        .and_then(
+            |e| if let PdfAtom::Stream(st) = &e.atom { Some(st.data_span.start) } else { None },
+        )
         .unwrap_or(0);
     let findings = findings_with_cache(ctx)?;
     Ok(correlate_content_stream_findings(
@@ -9171,7 +9249,8 @@ fn format_correlated_findings_text(
     page_ref: Option<(u32, u16)>,
     approx_decoded_len: u64,
 ) -> Result<String> {
-    let correlated = correlate_stream_findings_for_cli(ctx, obj, gen, page_ref, approx_decoded_len)?;
+    let correlated =
+        correlate_stream_findings_for_cli(ctx, obj, gen, page_ref, approx_decoded_len)?;
     if correlated.is_empty() {
         return Ok(String::new());
     }
@@ -9242,7 +9321,13 @@ fn execute_stream_content_ops(
         let summary = decode_and_summarise_stream(ctx, obj, gen, page_ref)?;
         out.push_str(&summary_to_text(&summary));
         if with_findings {
-            let findings_text = format_correlated_findings_text(ctx, obj, gen, page_ref, summary.stats.total_op_count as u64 * 8)?;
+            let findings_text = format_correlated_findings_text(
+                ctx,
+                obj,
+                gen,
+                page_ref,
+                summary.stats.total_op_count as u64 * 8,
+            )?;
             if !findings_text.is_empty() {
                 out.push_str(&findings_text);
             }
@@ -9258,7 +9343,7 @@ fn execute_stream_content_ops_json(
     recursive: bool,
     with_findings: bool,
 ) -> Result<serde_json::Value> {
-    use sis_pdf_pdf::content_summary::{summary_to_json, recursive_summary_to_json};
+    use sis_pdf_pdf::content_summary::{recursive_summary_to_json, summary_to_json};
     let page_ref = find_page_for_stream(ctx, obj, gen);
     if recursive {
         let rcs = decode_and_summarise_xobject_tree(ctx, obj, gen, page_ref)?;
@@ -9267,7 +9352,13 @@ fn execute_stream_content_ops_json(
         let summary = decode_and_summarise_stream(ctx, obj, gen, page_ref)?;
         let mut json = summary_to_json(&summary);
         if with_findings {
-            let correlated = correlate_stream_findings_for_cli(ctx, obj, gen, page_ref, summary.stats.total_op_count as u64 * 8)?;
+            let correlated = correlate_stream_findings_for_cli(
+                ctx,
+                obj,
+                gen,
+                page_ref,
+                summary.stats.total_op_count as u64 * 8,
+            )?;
             json["correlated_findings"] = correlated_findings_to_json(&correlated);
         }
         Ok(json)
@@ -9326,14 +9417,15 @@ fn page_streams(ctx: &ScanContext, page_obj: u32, page_gen: u16) -> Vec<(u32, u1
     out
 }
 
-fn resolve_stream_ref(ctx: &ScanContext, obj: &sis_pdf_pdf::object::PdfObj<'_>) -> Option<(u32, u16)> {
+fn resolve_stream_ref(
+    ctx: &ScanContext,
+    obj: &sis_pdf_pdf::object::PdfObj<'_>,
+) -> Option<(u32, u16)> {
     match &obj.atom {
-        PdfAtom::Ref { obj, gen } => {
-            ctx.graph.get_object(*obj, *gen).and_then(|e| match &e.atom {
-                PdfAtom::Stream(_) => Some((*obj, *gen)),
-                _ => None,
-            })
-        }
+        PdfAtom::Ref { obj, gen } => ctx.graph.get_object(*obj, *gen).and_then(|e| match &e.atom {
+            PdfAtom::Stream(_) => Some((*obj, *gen)),
+            _ => None,
+        }),
         PdfAtom::Stream(_) => {
             let span = obj.span.start;
             ctx.graph.objects.iter().find(|e| e.body_span.start == span).map(|e| (e.obj, e.gen))
@@ -9342,7 +9434,11 @@ fn resolve_stream_ref(ctx: &ScanContext, obj: &sis_pdf_pdf::object::PdfObj<'_>) 
     }
 }
 
-fn execute_page_content_ops(ctx: &ScanContext, page_idx: usize, with_findings: bool) -> Result<String> {
+fn execute_page_content_ops(
+    ctx: &ScanContext,
+    page_idx: usize,
+    with_findings: bool,
+) -> Result<String> {
     use sis_pdf_pdf::content_summary::summary_to_text;
     let tree = sis_pdf_core::page_tree::build_page_tree(&ctx.graph);
     let page = tree.pages.get(page_idx).ok_or_else(|| {
@@ -9359,7 +9455,13 @@ fn execute_page_content_ops(ctx: &ScanContext, page_idx: usize, with_findings: b
                 out.push_str(&summary_to_text(&summary));
                 if with_findings {
                     let approx_len = summary.stats.total_op_count as u64 * 8;
-                    if let Ok(findings_text) = format_correlated_findings_text(ctx, obj, gen, Some((page.obj, page.gen)), approx_len) {
+                    if let Ok(findings_text) = format_correlated_findings_text(
+                        ctx,
+                        obj,
+                        gen,
+                        Some((page.obj, page.gen)),
+                        approx_len,
+                    ) {
                         if !findings_text.is_empty() {
                             out.push_str(&findings_text);
                         }
@@ -9389,25 +9491,38 @@ fn execute_page_content_ops_json(
     let summaries: Vec<serde_json::Value> = stream_refs
         .into_iter()
         .filter_map(|(obj, gen)| {
-            decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen)))
-                .ok()
-                .map(|summary| {
+            decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen))).ok().map(
+                |summary| {
                     let mut json = summary_to_json(&summary);
                     if with_findings {
                         let approx_len = summary.stats.total_op_count as u64 * 8;
-                        if let Ok(correlated) = correlate_stream_findings_for_cli(ctx, obj, gen, Some((page.obj, page.gen)), approx_len) {
+                        if let Ok(correlated) = correlate_stream_findings_for_cli(
+                            ctx,
+                            obj,
+                            gen,
+                            Some((page.obj, page.gen)),
+                            approx_len,
+                        ) {
                             json["correlated_findings"] = correlated_findings_to_json(&correlated);
                         }
                     }
                     json
-                })
+                },
+            )
         })
         .collect();
     Ok(serde_json::json!({ "page_idx": page_idx, "streams": summaries }))
 }
 
-fn execute_content_graph_dot(ctx: &ScanContext, obj: u32, gen: u16, recursive: bool) -> Result<String> {
-    use sis_pdf_pdf::content_summary::{build_content_graph, build_content_graph_recursive, content_graph_to_dot};
+fn execute_content_graph_dot(
+    ctx: &ScanContext,
+    obj: u32,
+    gen: u16,
+    recursive: bool,
+) -> Result<String> {
+    use sis_pdf_pdf::content_summary::{
+        build_content_graph, build_content_graph_recursive, content_graph_to_dot,
+    };
     let page_ref = find_page_for_stream(ctx, obj, gen);
     if recursive {
         let rcs = decode_and_summarise_xobject_tree(ctx, obj, gen, page_ref)?;
@@ -9420,8 +9535,15 @@ fn execute_content_graph_dot(ctx: &ScanContext, obj: u32, gen: u16, recursive: b
     }
 }
 
-fn execute_content_graph_json(ctx: &ScanContext, obj: u32, gen: u16, recursive: bool) -> Result<serde_json::Value> {
-    use sis_pdf_pdf::content_summary::{build_content_graph, build_content_graph_recursive, content_graph_to_json};
+fn execute_content_graph_json(
+    ctx: &ScanContext,
+    obj: u32,
+    gen: u16,
+    recursive: bool,
+) -> Result<serde_json::Value> {
+    use sis_pdf_pdf::content_summary::{
+        build_content_graph, build_content_graph_recursive, content_graph_to_json,
+    };
     let page_ref = find_page_for_stream(ctx, obj, gen);
     if recursive {
         let rcs = decode_and_summarise_xobject_tree(ctx, obj, gen, page_ref)?;
@@ -9434,8 +9556,14 @@ fn execute_content_graph_json(ctx: &ScanContext, obj: u32, gen: u16, recursive: 
     }
 }
 
-fn execute_page_content_graph_dot(ctx: &ScanContext, page_idx: usize, recursive: bool) -> Result<String> {
-    use sis_pdf_pdf::content_summary::{build_content_graph, build_content_graph_recursive, content_graph_to_dot};
+fn execute_page_content_graph_dot(
+    ctx: &ScanContext,
+    page_idx: usize,
+    recursive: bool,
+) -> Result<String> {
+    use sis_pdf_pdf::content_summary::{
+        build_content_graph, build_content_graph_recursive, content_graph_to_dot,
+    };
     let tree = sis_pdf_core::page_tree::build_page_tree(&ctx.graph);
     let page = tree.pages.get(page_idx).ok_or_else(|| {
         anyhow!("Page index {} out of range (document has {} pages)", page_idx, tree.pages.len())
@@ -9444,14 +9572,24 @@ fn execute_page_content_graph_dot(ctx: &ScanContext, page_idx: usize, recursive:
     let mut out = String::new();
     for (obj, gen) in stream_refs {
         if recursive {
-            if let Ok(rcs) = decode_and_summarise_xobject_tree(ctx, obj, gen, Some((page.obj, page.gen))) {
+            if let Ok(rcs) =
+                decode_and_summarise_xobject_tree(ctx, obj, gen, Some((page.obj, page.gen)))
+            {
                 let csg = build_content_graph_recursive(&rcs.root, &rcs.xobject_children);
-                out.push_str(&content_graph_to_dot(&csg, &format!("page {} stream {} {} (recursive)", page_idx, obj, gen)));
+                out.push_str(&content_graph_to_dot(
+                    &csg,
+                    &format!("page {} stream {} {} (recursive)", page_idx, obj, gen),
+                ));
                 out.push('\n');
             }
-        } else if let Ok(summary) = decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen))) {
+        } else if let Ok(summary) =
+            decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen)))
+        {
             let csg = build_content_graph(&summary);
-            out.push_str(&content_graph_to_dot(&csg, &format!("page {} stream {} {}", page_idx, obj, gen)));
+            out.push_str(&content_graph_to_dot(
+                &csg,
+                &format!("page {} stream {} {}", page_idx, obj, gen),
+            ));
             out.push('\n');
         }
     }
@@ -9463,7 +9601,9 @@ fn execute_page_content_graph_json(
     page_idx: usize,
     recursive: bool,
 ) -> Result<serde_json::Value> {
-    use sis_pdf_pdf::content_summary::{build_content_graph, build_content_graph_recursive, content_graph_to_json};
+    use sis_pdf_pdf::content_summary::{
+        build_content_graph, build_content_graph_recursive, content_graph_to_json,
+    };
     let tree = sis_pdf_core::page_tree::build_page_tree(&ctx.graph);
     let page = tree.pages.get(page_idx).ok_or_else(|| {
         anyhow!("Page index {} out of range (document has {} pages)", page_idx, tree.pages.len())
@@ -9480,12 +9620,12 @@ fn execute_page_content_graph_json(
                         content_graph_to_json(&csg)
                     })
             } else {
-                decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen)))
-                    .ok()
-                    .map(|s| {
+                decode_and_summarise_stream(ctx, obj, gen, Some((page.obj, page.gen))).ok().map(
+                    |s| {
                         let csg = build_content_graph(&s);
                         content_graph_to_json(&csg)
-                    })
+                    },
+                )
             }
         })
         .collect();
@@ -13049,24 +13189,77 @@ mod tests {
 
     #[test]
     fn parse_query_stream_content_variants() {
-        assert!(matches!(parse_query("stream.content 15 0"), Ok(Query::StreamContentOps { obj: 15, gen: 0, recursive: false, with_findings: false })));
-        assert!(matches!(parse_query("stream.content.json 15 0"), Ok(Query::StreamContentOpsJson { obj: 15, gen: 0, recursive: false, with_findings: false })));
-        assert!(matches!(parse_query("page.content 0"), Ok(Query::PageContentOps { page_idx: 0, with_findings: false })));
-        assert!(matches!(parse_query("page.content.json 2"), Ok(Query::PageContentOpsJson { page_idx: 2, with_findings: false })));
-        assert!(matches!(parse_query("graph.content 15 0"), Ok(Query::GraphContentStreamDot { obj: 15, gen: 0, recursive: false })));
-        assert!(matches!(parse_query("graph.content.json 15 0"), Ok(Query::GraphContentStreamJson { obj: 15, gen: 0, recursive: false })));
-        assert!(matches!(parse_query("graph.page.content 0"), Ok(Query::GraphPageContentDot { page_idx: 0, recursive: false })));
-        assert!(matches!(parse_query("graph.page.content.json 1"), Ok(Query::GraphPageContentJson { page_idx: 1, recursive: false })));
+        assert!(matches!(
+            parse_query("stream.content 15 0"),
+            Ok(Query::StreamContentOps { obj: 15, gen: 0, recursive: false, with_findings: false })
+        ));
+        assert!(matches!(
+            parse_query("stream.content.json 15 0"),
+            Ok(Query::StreamContentOpsJson {
+                obj: 15,
+                gen: 0,
+                recursive: false,
+                with_findings: false
+            })
+        ));
+        assert!(matches!(
+            parse_query("page.content 0"),
+            Ok(Query::PageContentOps { page_idx: 0, with_findings: false })
+        ));
+        assert!(matches!(
+            parse_query("page.content.json 2"),
+            Ok(Query::PageContentOpsJson { page_idx: 2, with_findings: false })
+        ));
+        assert!(matches!(
+            parse_query("graph.content 15 0"),
+            Ok(Query::GraphContentStreamDot { obj: 15, gen: 0, recursive: false })
+        ));
+        assert!(matches!(
+            parse_query("graph.content.json 15 0"),
+            Ok(Query::GraphContentStreamJson { obj: 15, gen: 0, recursive: false })
+        ));
+        assert!(matches!(
+            parse_query("graph.page.content 0"),
+            Ok(Query::GraphPageContentDot { page_idx: 0, recursive: false })
+        ));
+        assert!(matches!(
+            parse_query("graph.page.content.json 1"),
+            Ok(Query::GraphPageContentJson { page_idx: 1, recursive: false })
+        ));
         // Recursive variants
-        assert!(matches!(parse_query("stream.content.recursive 15 0"), Ok(Query::StreamContentOps { obj: 15, gen: 0, recursive: true, .. })));
-        assert!(matches!(parse_query("stream.content.json.recursive 15 0"), Ok(Query::StreamContentOpsJson { obj: 15, gen: 0, recursive: true, .. })));
-        assert!(matches!(parse_query("graph.content.recursive 15 0"), Ok(Query::GraphContentStreamDot { obj: 15, gen: 0, recursive: true })));
-        assert!(matches!(parse_query("graph.content.json.recursive 15 0"), Ok(Query::GraphContentStreamJson { obj: 15, gen: 0, recursive: true })));
-        assert!(matches!(parse_query("graph.page.content.recursive 0"), Ok(Query::GraphPageContentDot { page_idx: 0, recursive: true })));
-        assert!(matches!(parse_query("graph.page.content.json.recursive 1"), Ok(Query::GraphPageContentJson { page_idx: 1, recursive: true })));
+        assert!(matches!(
+            parse_query("stream.content.recursive 15 0"),
+            Ok(Query::StreamContentOps { obj: 15, gen: 0, recursive: true, .. })
+        ));
+        assert!(matches!(
+            parse_query("stream.content.json.recursive 15 0"),
+            Ok(Query::StreamContentOpsJson { obj: 15, gen: 0, recursive: true, .. })
+        ));
+        assert!(matches!(
+            parse_query("graph.content.recursive 15 0"),
+            Ok(Query::GraphContentStreamDot { obj: 15, gen: 0, recursive: true })
+        ));
+        assert!(matches!(
+            parse_query("graph.content.json.recursive 15 0"),
+            Ok(Query::GraphContentStreamJson { obj: 15, gen: 0, recursive: true })
+        ));
+        assert!(matches!(
+            parse_query("graph.page.content.recursive 0"),
+            Ok(Query::GraphPageContentDot { page_idx: 0, recursive: true })
+        ));
+        assert!(matches!(
+            parse_query("graph.page.content.json.recursive 1"),
+            Ok(Query::GraphPageContentJson { page_idx: 1, recursive: true })
+        ));
         // Findings variants
-        assert!(matches!(parse_query("stream.content.findings 15 0"), Ok(Query::StreamContentOps { obj: 15, gen: 0, with_findings: true, .. })));
-        assert!(matches!(parse_query("page.content.findings 0"), Ok(Query::PageContentOps { page_idx: 0, with_findings: true })));
+        assert!(matches!(
+            parse_query("stream.content.findings 15 0"),
+            Ok(Query::StreamContentOps { obj: 15, gen: 0, with_findings: true, .. })
+        ));
+        assert!(matches!(
+            parse_query("page.content.findings 0"),
+            Ok(Query::PageContentOps { page_idx: 0, with_findings: true })
+        ));
     }
 
     #[test]
@@ -13074,12 +13267,21 @@ mod tests {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
             let query = parse_query("page.content 0").expect("parse query");
             let result = execute_query_with_context(
-                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
-            ).expect("execute query");
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
             match result {
                 QueryResult::List(lines) => {
                     let combined = lines.join("\n");
-                    assert!(combined.contains("Content stream"), "output should contain stream header");
+                    assert!(
+                        combined.contains("Content stream"),
+                        "output should contain stream header"
+                    );
                 }
                 QueryResult::Error(e) => panic!("unexpected error: {}", e.message),
                 _ => panic!("unexpected result type"),
@@ -13092,8 +13294,14 @@ mod tests {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
             let query = parse_query("page.content.json 0").expect("parse query");
             let result = execute_query_with_context(
-                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
-            ).expect("execute query");
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
             match result {
                 QueryResult::Structure(v) => {
                     assert!(v["streams"].is_array(), "json output should have 'streams' array");
@@ -13109,16 +13317,25 @@ mod tests {
         with_fixture_context("synthetic.pdf", |ctx| {
             let query = parse_query("page.content 9999").expect("parse query");
             let result = execute_query_with_context(
-                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
             );
             // Should be either an Err result or a QueryResult::Error — not a panic.
             match result {
-                Err(_) => {} // expected: execute returned Err
+                Err(_) => {}                    // expected: execute returned Err
                 Ok(QueryResult::Error(_)) => {} // also acceptable
                 Ok(QueryResult::List(lines)) => {
                     // Some PDFs may have no streams; the message should indicate no streams
                     let combined = lines.join("\n");
-                    assert!(combined.contains("no content") || combined.contains("out of range") || combined.is_empty());
+                    assert!(
+                        combined.contains("no content")
+                            || combined.contains("out of range")
+                            || combined.is_empty()
+                    );
                 }
                 Ok(other) => panic!("unexpected result for out-of-range page: {:?}", other),
             }
@@ -13136,7 +13353,12 @@ mod tests {
             let Some((obj, gen)) = stream_ref else { return };
             let query = parse_query(&format!("stream.content {} {}", obj, gen)).expect("parse");
             let result = execute_query_with_context(
-                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
             );
             // Must not panic; result may be Ok or Err depending on stream type.
             let _ = result;
@@ -13148,14 +13370,23 @@ mod tests {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
             let query = parse_query("graph.page.content 0").expect("parse query");
             let result = execute_query_with_context(
-                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
-            ).expect("execute query");
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
             match result {
                 QueryResult::List(lines) => {
                     let combined = lines.join("\n");
                     // Empty pages may produce no DOT output
                     if !combined.is_empty() {
-                        assert!(combined.contains("digraph"), "DOT output should contain 'digraph'");
+                        assert!(
+                            combined.contains("digraph"),
+                            "DOT output should contain 'digraph'"
+                        );
                     }
                 }
                 QueryResult::Error(e) => panic!("unexpected error: {}", e.message),
@@ -13169,8 +13400,14 @@ mod tests {
         with_fixture_context("content_first_phase1.pdf", |ctx| {
             let query = parse_query("graph.page.content.json 0").expect("parse query");
             let result = execute_query_with_context(
-                &query, ctx, None, 1024 * 1024, DecodeMode::Decode, None,
-            ).expect("execute query");
+                &query,
+                ctx,
+                None,
+                1024 * 1024,
+                DecodeMode::Decode,
+                None,
+            )
+            .expect("execute query");
             match result {
                 QueryResult::Structure(v) => {
                     assert!(v["graphs"].is_array());

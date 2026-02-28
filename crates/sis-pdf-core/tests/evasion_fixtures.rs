@@ -78,8 +78,9 @@ fn entropy_padded_js_still_emits_js_present() {
     ];
     let bytes = build_pdf_with_objects(&objects);
     let detectors = default_detectors();
-    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
-        .expect("scan should succeed");
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan should succeed");
 
     assert!(
         report.findings.iter().any(|f| f.kind == "js_present"),
@@ -117,20 +118,17 @@ fn partial_chain_annotated_as_low_completeness() {
     ];
     let bytes = build_pdf_with_objects(&objects);
     let detectors = default_detectors();
-    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
-        .expect("scan should succeed");
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan should succeed");
 
     // At least one chain must exist.
-    assert!(
-        !report.chains.is_empty(),
-        "scan should produce at least one exploit chain"
-    );
+    assert!(!report.chains.is_empty(), "scan should produce at least one exploit chain");
 
     // At least one chain must carry the low_completeness annotation, confirming
     // that partial chains are correctly flagged.
-    let has_low_completeness = report.chains.iter().any(|c| {
-        c.notes.get("low_completeness").is_some_and(|v| v == "true")
-    });
+    let has_low_completeness =
+        report.chains.iter().any(|c| c.notes.get("low_completeness").is_some_and(|v| v == "true"));
     assert!(
         has_low_completeness,
         "at least one chain should be annotated with low_completeness=true; \
@@ -160,13 +158,15 @@ fn unc_path_submit_triggers_credential_leak_detection() {
     ];
     let bytes = build_pdf_with_objects(&objects);
     let detectors = default_detectors();
-    let report = sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
-        .expect("scan should succeed");
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan should succeed");
 
     // passive_render_pipeline emits passive_credential_leak_risk for SubmitForm UNC targets.
-    let detected = report.findings.iter().any(|f| {
-        f.kind == "passive_credential_leak_risk" || f.kind == "uri_unc_path_ntlm_risk"
-    });
+    let detected = report
+        .findings
+        .iter()
+        .any(|f| f.kind == "passive_credential_leak_risk" || f.kind == "uri_unc_path_ntlm_risk");
     assert!(
         detected,
         "SubmitForm with UNC target must trigger credential-leak detection; \

@@ -99,10 +99,8 @@ pub fn from_content_graph(
 
             let (obj_type, mut label, object_ref) = match &node.kind {
                 CsgNodeKind::TextBlock { strings, fonts } => {
-                    let font_str =
-                        if fonts.is_empty() { String::new() } else { fonts.join(", ") };
-                    let preview: Vec<&str> =
-                        strings.iter().take(2).map(|s| s.as_str()).collect();
+                    let font_str = if fonts.is_empty() { String::new() } else { fonts.join(", ") };
+                    let preview: Vec<&str> = strings.iter().take(2).map(|s| s.as_str()).collect();
                     let mut text_preview = preview.join("  ");
                     if text_preview.len() > 40 {
                         text_preview.truncate(37);
@@ -134,16 +132,12 @@ pub fn from_content_graph(
                 CsgNodeKind::MarkedContent { tag } => {
                     ("content_marked".to_string(), format!("MC {}", tag), None)
                 }
-                CsgNodeKind::GraphicsState { depth } => (
-                    "content_gstate".to_string(),
-                    format!("q…Q (depth {})", depth),
-                    None,
-                ),
-                CsgNodeKind::OpGroup { label, count } => (
-                    "content_ops".to_string(),
-                    format!("{} ({} ops)", label, count),
-                    None,
-                ),
+                CsgNodeKind::GraphicsState { depth } => {
+                    ("content_gstate".to_string(), format!("q…Q (depth {})", depth), None)
+                }
+                CsgNodeKind::OpGroup { label, count } => {
+                    ("content_ops".to_string(), format!("{} ({} ops)", label, count), None)
+                }
                 CsgNodeKind::PdfObject { obj, gen, obj_type } => {
                     let r = Some((*obj, *gen));
                     node_index.insert((*obj, *gen), idx);
@@ -153,7 +147,10 @@ pub fn from_content_graph(
             // Append finding kind annotation to label if applicable.
             if has_finding {
                 for f in correlated_findings {
-                    if f.decoded_offset.map(|o| o >= node.span_start && o <= node.span_end).unwrap_or(false) {
+                    if f.decoded_offset
+                        .map(|o| o >= node.span_start && o <= node.span_end)
+                        .unwrap_or(false)
+                    {
                         label.push_str(&format!("\n[{}]", f.kind));
                         break;
                     }

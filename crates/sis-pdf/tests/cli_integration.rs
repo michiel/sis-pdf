@@ -24,8 +24,7 @@ fn json_output_is_valid() {
         .expect("failed to run sis");
     assert!(out.status.success(), "exit code: {}", out.status);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("stdout is not valid JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("stdout is not valid JSON");
     assert!(
         json.get("findings").is_some_and(|f| f.is_array()),
         "missing 'findings' array in output"
@@ -84,10 +83,7 @@ fn missing_file_exits_nonzero() {
     // stderr or stdout should contain some error indication
     let stderr = String::from_utf8_lossy(&out.stderr);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(
-        !stderr.is_empty() || !stdout.is_empty(),
-        "expected error output for missing file"
-    );
+    assert!(!stderr.is_empty() || !stdout.is_empty(), "expected error output for missing file");
 }
 
 #[test]
@@ -99,11 +95,7 @@ fn query_pages_is_integer() {
     assert!(out.status.success(), "exit code: {}", out.status);
     let stdout = String::from_utf8_lossy(&out.stdout);
     let trimmed = stdout.trim();
-    assert!(
-        trimmed.parse::<u64>().is_ok(),
-        "expected integer page count, got: {:?}",
-        trimmed
-    );
+    assert!(trimmed.parse::<u64>().is_ok(), "expected integer page count, got: {:?}", trimmed);
 }
 
 #[test]
@@ -147,10 +139,14 @@ fn correlate_findings_clusters_by_kind() {
 
     let _ = std::fs::remove_file(&input_path);
 
-    assert!(out.status.success(), "exit code: {}\nstderr: {}", out.status, String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "exit code: {}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    let json: serde_json::Value =
-        serde_json::from_str(&stdout).expect("stdout is not valid JSON");
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("stdout is not valid JSON");
 
     assert_eq!(
         json.get("type").and_then(|t| t.as_str()),

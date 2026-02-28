@@ -83,11 +83,7 @@ pub fn open_stream(app: &mut SisApp, obj: u32, gen: u16) {
 /// Re-parse the PDF bytes, decode stream `(obj, gen)`, resolve resources, and summarise.
 ///
 /// All lifetimed graph objects are dropped before returning the owned summary.
-fn compute_stream_summary(
-    bytes: &[u8],
-    obj: u32,
-    gen: u16,
-) -> Option<ContentStreamSummary> {
+fn compute_stream_summary(bytes: &[u8], obj: u32, gen: u16) -> Option<ContentStreamSummary> {
     use sis_pdf_core::page_tree::resolve_page_resources;
     use sis_pdf_pdf::decode::decode_stream;
     use sis_pdf_pdf::graph::{parse_pdf, ParseOptions};
@@ -115,8 +111,7 @@ fn compute_stream_summary(
 
     // Find the page that owns this stream (so we can resolve resources).
     let page_ref = find_page_for_stream(&graph, obj, gen);
-    let owned_resources =
-        page_ref.and_then(|(po, pg)| resolve_page_resources(&graph, po, pg));
+    let owned_resources = page_ref.and_then(|(po, pg)| resolve_page_resources(&graph, po, pg));
 
     let summary = sis_pdf_pdf::content_summary::summarise_stream(
         &decoded.data,
@@ -211,8 +206,7 @@ pub fn show(ctx: &egui::Context, app: &mut SisApp) {
         None => "Content Stream".to_string(),
     };
     let mut ws = app.window_max.remove(&title).unwrap_or_default();
-    let win =
-        crate::window_state::dialog_window(ctx, &title, [800.0, 560.0], &mut ws);
+    let win = crate::window_state::dialog_window(ctx, &title, [800.0, 560.0], &mut ws);
     win.show(ctx, |ui| {
         crate::window_state::dialog_title_bar(ui, &title, &mut open, &mut ws);
         show_inner(ui, app);
@@ -244,11 +238,7 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
             app.open_hex_for_stream(stream_obj, stream_gen);
         }
         if ui.small_button("Show in graph").clicked() {
-            crate::panels::graph::open_content_stream(
-                app,
-                stream_obj,
-                stream_gen,
-            );
+            crate::panels::graph::open_content_stream(app, stream_obj, stream_gen);
         }
     });
 
@@ -284,7 +274,11 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
                 // Lazy-load child summaries when first expanded.
                 if show && app.content_stream_state.xobject_children.is_empty() {
                     if let Some(bytes) = app.result.as_ref().map(|r| r.bytes.clone()) {
-                        load_xobject_children(&bytes, &summary, &mut app.content_stream_state.xobject_children);
+                        load_xobject_children(
+                            &bytes,
+                            &summary,
+                            &mut app.content_stream_state.xobject_children,
+                        );
                     }
                 }
             }
@@ -298,18 +292,14 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
             ui.label(egui::RichText::new("Findings:").strong());
             for f in &correlated {
                 let severity_color = severity_colour(f.severity);
-                let badge = egui::RichText::new(format!("* {}", f.kind))
-                    .color(severity_color);
+                let badge = egui::RichText::new(format!("* {}", f.kind)).color(severity_color);
                 ui.label(badge);
                 let conf_str = format!("{:?}", f.confidence).to_lowercase();
                 ui.weak(format!("[{:?}/{conf_str}]", f.severity));
             }
         });
         ui.horizontal(|ui| {
-            ui.toggle_value(
-                &mut app.content_stream_state.findings_only,
-                "Show findings only",
-            );
+            ui.toggle_value(&mut app.content_stream_state.findings_only, "Show findings only");
         });
     }
 
@@ -320,20 +310,15 @@ fn show_inner(ui: &mut egui::Ui, app: &mut SisApp) {
                 Color32::from_rgb(220, 140, 30),
                 format!("{} anomalies", summary.anomalies.len()),
             );
-            ui.toggle_value(
-                &mut app.content_stream_state.anomalies_only,
-                "Show anomalies only",
-            );
+            ui.toggle_value(&mut app.content_stream_state.anomalies_only, "Show anomalies only");
         });
         if !app.content_stream_state.anomalies_only {
             // Show anomaly list collapsed
-            egui::CollapsingHeader::new("Anomaly details")
-                .default_open(false)
-                .show(ui, |ui| {
-                    for anomaly in &summary.anomalies {
-                        ui.label(format_anomaly(anomaly));
-                    }
-                });
+            egui::CollapsingHeader::new("Anomaly details").default_open(false).show(ui, |ui| {
+                for anomaly in &summary.anomalies {
+                    ui.label(format_anomaly(anomaly));
+                }
+            });
         } else {
             for anomaly in &summary.anomalies {
                 ui.label(
@@ -412,7 +397,9 @@ fn load_xobject_children(
         max_carved_objects: 0,
         max_carved_bytes: 0,
     };
-    let Ok(graph) = parse_pdf(bytes, parse_opts) else { return; };
+    let Ok(graph) = parse_pdf(bytes, parse_opts) else {
+        return;
+    };
 
     let mut visited: HashSet<(u32, u16)> = HashSet::new();
     visited.insert(summary.stream_ref);
@@ -429,37 +416,38 @@ fn collect_xobj_children_for_gui(
 ) {
     use sis_pdf_pdf::content_summary::{summarise_stream, ContentBlock};
     use sis_pdf_pdf::decode::decode_stream;
-    use sis_pdf_pdf::object::{PdfAtom};
+    use sis_pdf_pdf::object::PdfAtom;
 
     for block in blocks {
         match block {
-            ContentBlock::XObjectInvoke {
-                subtype: Some(st),
-                target_ref: Some(r),
-                ..
-            } if st == "Form" => {
+            ContentBlock::XObjectInvoke { subtype: Some(st), target_ref: Some(r), .. }
+                if st == "Form" =>
+            {
                 let form_ref = *r;
                 if visited.contains(&form_ref) {
                     continue;
                 }
                 visited.insert(form_ref);
-                let Some(entry) = graph.get_object(form_ref.0, form_ref.1) else { continue; };
+                let Some(entry) = graph.get_object(form_ref.0, form_ref.1) else {
+                    continue;
+                };
                 let stream = match &entry.atom {
                     PdfAtom::Stream(st) => st,
                     _ => continue,
                 };
                 let raw_stream_offset = stream.data_span.start;
-                let form_resources = stream.dict.get_first(b"/Resources").and_then(|(_, res)| {
-                    match &res.atom {
+                let form_resources =
+                    stream.dict.get_first(b"/Resources").and_then(|(_, res)| match &res.atom {
                         PdfAtom::Dict(d) => Some(d.clone()),
                         PdfAtom::Ref { .. } => graph.resolve_ref(res).and_then(|e| match &e.atom {
                             PdfAtom::Dict(d) => Some(d.clone()),
                             _ => None,
                         }),
                         _ => None,
-                    }
-                });
-                let Ok(decoded) = decode_stream(graph.bytes, stream, 4 * 1024 * 1024) else { continue; };
+                    });
+                let Ok(decoded) = decode_stream(graph.bytes, stream, 4 * 1024 * 1024) else {
+                    continue;
+                };
                 let child = summarise_stream(
                     &decoded.data,
                     decoded.truncated,
@@ -506,9 +494,7 @@ fn format_anomaly(anomaly: &ContentStreamAnomaly) -> String {
         ContentStreamAnomaly::HighOpCount { count } => {
             format!("Unusually high operator count: {}", count)
         }
-        ContentStreamAnomaly::StreamTruncated => {
-            "Stream was truncated during decoding".to_string()
-        }
+        ContentStreamAnomaly::StreamTruncated => "Stream was truncated during decoding".to_string(),
     }
 }
 
@@ -531,9 +517,7 @@ fn block_has_finding(
     correlated: &[CorrelatedStreamFinding],
 ) -> Option<String> {
     correlated.iter().find_map(|f| {
-        f.decoded_offset
-            .filter(|&o| o >= span_start && o <= span_end)
-            .map(|_| f.kind.clone())
+        f.decoded_offset.filter(|&o| o >= span_start && o <= span_end).map(|_| f.kind.clone())
     })
 }
 
@@ -560,12 +544,13 @@ fn show_block_with_findings(
             }
             ui.horizontal(|ui| {
                 ui.add_space(indent);
-                let label = format!(
-                    "[{}] TextObject BT…ET  span [{}, {}]",
-                    index, span_start, span_end
-                );
+                let label =
+                    format!("[{}] TextObject BT…ET  span [{}, {}]", index, span_start, span_end);
                 if finding_kind.is_some() {
-                    ui.label(egui::RichText::new(label).background_color(Color32::from_rgb(255, 220, 120)));
+                    ui.label(
+                        egui::RichText::new(label)
+                            .background_color(Color32::from_rgb(255, 220, 120)),
+                    );
                     if let Some(kind) = &finding_kind {
                         ui.weak(format!("[Finding: {}]", kind));
                     }
@@ -595,8 +580,7 @@ fn show_block_with_findings(
                 });
             }
             if !strings.is_empty() {
-                let preview: Vec<&str> =
-                    strings.iter().take(3).map(|s| s.as_str()).collect();
+                let preview: Vec<&str> = strings.iter().take(3).map(|s| s.as_str()).collect();
                 let mut preview_str = preview.join("  ");
                 if strings.len() > 3 {
                     preview_str.push_str(&format!(" … (+{})", strings.len() - 3));
@@ -636,12 +620,26 @@ fn show_block_with_findings(
             if expanded || new_expanded.inner {
                 for (ci, child) in children.iter().enumerate() {
                     show_block_with_findings(
-                        ui, app, child, ci, depth + 1, correlated, xobject_children, show_xobj, findings_only,
+                        ui,
+                        app,
+                        child,
+                        ci,
+                        depth + 1,
+                        correlated,
+                        xobject_children,
+                        show_xobj,
+                        findings_only,
                     );
                 }
             }
         }
-        ContentBlock::XObjectInvoke { resource_name, target_ref, subtype, span_start, span_end } => {
+        ContentBlock::XObjectInvoke {
+            resource_name,
+            target_ref,
+            subtype,
+            span_start,
+            span_end,
+        } => {
             let finding_kind = block_has_finding(*span_start, *span_end, correlated);
             if findings_only && finding_kind.is_none() {
                 return;
@@ -654,7 +652,10 @@ fn show_block_with_findings(
                     index, resource_name, type_label, span_start, span_end
                 );
                 if finding_kind.is_some() {
-                    ui.label(egui::RichText::new(label).background_color(Color32::from_rgb(255, 220, 120)));
+                    ui.label(
+                        egui::RichText::new(label)
+                            .background_color(Color32::from_rgb(255, 220, 120)),
+                    );
                 } else {
                     ui.label(label);
                 }
@@ -681,8 +682,15 @@ fn show_block_with_findings(
                                 let child_blocks = child_summary.blocks.clone();
                                 for (ci, child_block) in child_blocks.iter().enumerate() {
                                     show_block_with_findings(
-                                        ui, app, child_block, ci, depth + 2,
-                                        correlated, xobject_children, show_xobj, findings_only,
+                                        ui,
+                                        app,
+                                        child_block,
+                                        ci,
+                                        depth + 2,
+                                        correlated,
+                                        xobject_children,
+                                        show_xobj,
+                                        findings_only,
                                     );
                                 }
                             });
@@ -719,7 +727,8 @@ fn show_block_with_findings(
                 span_start,
                 span_end
             );
-            let expanded = *app.content_stream_state.expanded.entry(index + 100_000).or_insert(true);
+            let expanded =
+                *app.content_stream_state.expanded.entry(index + 100_000).or_insert(true);
             let new_expanded = ui.horizontal(|ui| {
                 ui.add_space(indent);
                 let resp = ui.selectable_label(expanded, &header);
@@ -735,7 +744,15 @@ fn show_block_with_findings(
             if expanded || new_expanded.inner {
                 for (ci, child) in children.iter().enumerate() {
                     show_block_with_findings(
-                        ui, app, child, ci, depth + 1, correlated, xobject_children, show_xobj, findings_only,
+                        ui,
+                        app,
+                        child,
+                        ci,
+                        depth + 1,
+                        correlated,
+                        xobject_children,
+                        show_xobj,
+                        findings_only,
                     );
                 }
             }

@@ -351,11 +351,7 @@ fn atom_fingerprint(atom: &PdfAtom<'_>, depth: usize) -> String {
         PdfAtom::Array(values) => {
             let mut out = String::from("array:");
             out.push_str(
-                &values
-                    .iter()
-                    .map(|v| obj_fingerprint(v, depth + 1))
-                    .collect::<Vec<_>>()
-                    .join(","),
+                &values.iter().map(|v| obj_fingerprint(v, depth + 1)).collect::<Vec<_>>().join(","),
             );
             out
         }
@@ -698,11 +694,7 @@ mod tests {
     }
 
     fn make_name(decoded: &[u8]) -> PdfName<'static> {
-        PdfName {
-            span: dummy_span(),
-            raw: Cow::Owned(decoded.to_vec()),
-            decoded: decoded.to_vec(),
-        }
+        PdfName { span: dummy_span(), raw: Cow::Owned(decoded.to_vec()), decoded: decoded.to_vec() }
     }
 
     fn make_int_obj(value: i64) -> PdfObj<'static> {
@@ -719,8 +711,7 @@ mod tests {
             make_dict_with_entry(b"/Value", make_int_obj(42))
         } else {
             let inner = build_nested_dict(depth - 1);
-            let inner_obj =
-                PdfObj { span: dummy_span(), atom: PdfAtom::Dict(inner) };
+            let inner_obj = PdfObj { span: dummy_span(), atom: PdfAtom::Dict(inner) };
             make_dict_with_entry(b"/Inner", inner_obj)
         }
     }

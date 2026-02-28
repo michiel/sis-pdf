@@ -732,3 +732,42 @@ This plan supersedes `20260227-corpus-analysis-uplift.md` for the following item
 - **P5, P6**: Deep mode and CI — still valid, addressed partially by COV-6
 
 Items from the prior plan not covered here remain valid and should proceed independently.
+
+---
+
+## Implementation Update (2026-02-28)
+
+Completed in this iteration:
+
+1. `/Launch /Win` parsing uplift in `crates/sis-pdf-detectors/src/lib.rs`:
+   - Parsed `/Win` sub-keys into `launch.win.f`, `launch.win.p`, `launch.win.d`, `launch.win.o`.
+   - Preserved `launch.target_path` from `/Win /F`.
+   - Added dedicated `launch_win_embedded_url` finding with URI classification metadata and source-offset evidence.
+
+2. Chain role and clustering uplift in `crates/sis-pdf-core/src/chain_synth.rs`:
+   - Expanded trigger/action/payload mappings for `action_automatic_trigger`, `annotation_action_chain`,
+     `pdfjs_eval_path_risk`, `launch_external_program`, `launch_win_embedded_url`,
+     `uri_unc_path_ntlm_risk`, `uri_classification_summary`, `powershell_payload_present`.
+   - Added singleton cluster support for `annotation_action_chain` and `decoder_risk_present`.
+   - Fixed cluster member counting to use unique finding IDs.
+
+3. Test coverage added/updated:
+   - `crates/sis-pdf-detectors/tests/launch_actions.rs`:
+     - `launch_action_parses_win_dict_without_payload_error`
+     - `launch_action_extracts_embedded_url_from_win_parameters`
+   - `crates/sis-pdf-core/tests/chain_grouping.rs`:
+     - `launch_url_chain_assigns_trigger_action_payload_and_edges`
+   - `crates/sis-pdf-detectors/tests/common.rs`: updated `ScanOptions` fixture (`per_file_timeout_ms`).
+
+Baseline deltas from fresh deep scans:
+
+- `mshta-italian-sandbox-escape-ef6dff9b.pdf`:
+  - `launch_win_embedded_url` now present (`count=1`) with Blogspot C2 extracted.
+  - Multi-finding chains: `8`; total chains: `16`.
+- `url-bombing-25-annotation-9f4e98d1.pdf`:
+  - Chain count reduced from fragmented baseline (`38`) to `14`.
+  - New cluster chain: `Annotation action cluster (25 links)`.
+- `jbig2-zeroclick-cve2021-30860-1c8abb3a.pdf`:
+  - Cluster chains present: `Image anomaly cluster`, `Decoder risk cluster`,
+    `Stream type mismatch cluster`.
+  - Residual gap: cross-cluster fusion with `content_invisible_text` remains.

@@ -93,17 +93,13 @@ Targeted domain sample:
 
 ## Chain Assessment
 
-This sample exposes the most severe chain architecture failure in the current sample set:
+Updated deep scan on 2026-02-28 (post-uplift) confirms the primary chain-fragmentation gap is closed.
 
-**Observed**: 38 chains for 38 findings, all with 0 edges, 0 members, chain_completeness=0.2. The 25 annotation URL findings each become a separate chain (`Annotation action chain -> http://zuoche.com`, `Annotation action chain -> http://shwelayoung.com`, etc.).
+**Current state**:
+- `Annotation action cluster (25 links)` now appears as a single cluster chain (`len=25`, `score=0.6`, `edges=5`)
+- Total chains dropped to 14 from the earlier 38-chain fragmented baseline
+- The 25 annotation findings are no longer represented only as 25 isolated singleton chains
 
-**Expected**: A single "Mass URI injection" cluster chain grouping all 25 annotations with:
-- Score ≥ 0.85 (High/Certain — 25 external URI actions is clearly malicious)
-- Severity: High
-- Edges between annotation findings showing they share the same attack pattern
-- A summary label like "25-domain annotation URL bombing"
-- Connection to `content_overlay_link` and `content_image_only_page` as evasion enablers
+Residual gap: the top-ranked chain is still `embedded_payload_carved` (`score=0.75`), so the mass-annotation cluster is not yet consistently the top triage chain. Cross-linking from the annotation cluster to `content_overlay_link` and `content_image_only_page` remains partial.
 
-The current chain engine groups by exact object ID or kind-prefix match. 25 `/annotation_action_chain` findings from 25 different annotation objects (different object IDs) produce 25 singleton chains rather than one cluster.
-
-This is the canonical example for the "same-kind bulk findings → single cluster chain" uplift item documented in `plans/20260228-corpus-analysis-uplift.md`.
+This case now validates the "same-kind bulk findings -> cluster chain" uplift item in `plans/20260228-corpus-perf-chain-uplift.md`.

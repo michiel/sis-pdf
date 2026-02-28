@@ -278,7 +278,13 @@ fn signals_from_finding(f: &Finding) -> Vec<IntentSignal> {
                 .or_else(|| f.meta.get("ratio"))
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.0);
-            let dos_weight = if ratio >= 100.0 { 4 } else if ratio >= 20.0 { 2 } else { 1 };
+            let dos_weight = if ratio >= 100.0 {
+                4
+            } else if ratio >= 20.0 {
+                2
+            } else {
+                1
+            };
             out.push(signal(
                 IntentBucket::DenialOfService,
                 dos_weight,
@@ -349,18 +355,8 @@ fn signals_from_finding(f: &Finding) -> Vec<IntentSignal> {
             ));
         }
         "polyglot_pe_dropper" | "polyglot_dropper_chain" => {
-            out.push(signal(
-                IntentBucket::ExploitPrimitive,
-                4,
-                "Polyglot PE dropper",
-                fid.clone(),
-            ));
-            out.push(signal(
-                IntentBucket::SandboxEscape,
-                3,
-                "PE dropper chain",
-                fid.clone(),
-            ));
+            out.push(signal(IntentBucket::ExploitPrimitive, 4, "Polyglot PE dropper", fid.clone()));
+            out.push(signal(IntentBucket::SandboxEscape, 3, "PE dropper chain", fid.clone()));
         }
         "parser_object_count_diff" | "parser_trailer_count_diff" => {
             out.push(signal(IntentBucket::ExploitPrimitive, 2, "Parser differential", fid.clone()));

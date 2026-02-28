@@ -51,10 +51,7 @@ impl Detector for AnnotationAttackDetector {
                 if let PdfAtom::Str(s) = &t_obj.atom {
                     let t_bytes = pdf_string_bytes(s);
                     let page_num = annot_parent
-                        .get(&sis_pdf_core::graph_walk::ObjRef {
-                            obj: entry.obj,
-                            gen: entry.gen,
-                        })
+                        .get(&sis_pdf_core::graph_walk::ObjRef { obj: entry.obj, gen: entry.gen })
                         .map(|p| p.number)
                         .unwrap_or(0);
                     t_collision_map
@@ -146,8 +143,7 @@ impl Detector for AnnotationAttackDetector {
                     }
                 }
             }
-            if let Some(field_injection) =
-                check_annotation_field_injection(entry, dict, dict.span)
+            if let Some(field_injection) = check_annotation_field_injection(entry, dict, dict.span)
             {
                 findings.push(field_injection);
             }
@@ -222,8 +218,7 @@ impl Detector for AnnotationAttackDetector {
                     {
                         findings.push(scheme_finding);
                     }
-                    if let Some(unc_finding) =
-                        check_uri_unc_path(entry, &action_target, dict.span)
+                    if let Some(unc_finding) = check_uri_unc_path(entry, &action_target, dict.span)
                     {
                         findings.push(unc_finding);
                     }
@@ -241,12 +236,12 @@ impl Detector for AnnotationAttackDetector {
         apply_kind_cap(&mut findings, "uri_data_html_scheme", URI_DANGEROUS_SCHEME_CAP);
         apply_kind_cap(&mut findings, "uri_command_injection", URI_DANGEROUS_SCHEME_CAP);
         apply_kind_cap(&mut findings, "uri_unc_path_ntlm_risk", URI_UNC_PATH_CAP);
-        apply_kind_cap(&mut findings, "annotation_field_html_injection", ANNOTATION_FIELD_INJECTION_CAP);
         apply_kind_cap(
             &mut findings,
-            "uri_classification_summary",
-            URI_CLASSIFICATION_SUMMARY_CAP,
+            "annotation_field_html_injection",
+            ANNOTATION_FIELD_INJECTION_CAP,
         );
+        apply_kind_cap(&mut findings, "uri_classification_summary", URI_CLASSIFICATION_SUMMARY_CAP);
         Ok(findings)
     }
 }
@@ -592,9 +587,7 @@ fn check_annotation_field_injection(
     let mut meta = HashMap::new();
     meta.insert("annot.field".into(), field.into());
     if let Some(subtype) = dict.get_first(b"/Subtype").and_then(|(_, obj)| match &obj.atom {
-        PdfAtom::Name(name) => {
-            Some(String::from_utf8_lossy(&name.decoded).to_string())
-        }
+        PdfAtom::Name(name) => Some(String::from_utf8_lossy(&name.decoded).to_string()),
         _ => None,
     }) {
         meta.insert("annot.subtype".into(), subtype);
@@ -976,7 +969,10 @@ mod tests {
 
     #[test]
     fn percent_decode_slash_encoded() {
-        assert_eq!(percent_decode_bytes(b"%3Cscript%3Ealert%281%29%3C%2Fscript%3E"), b"<script>alert(1)</script>");
+        assert_eq!(
+            percent_decode_bytes(b"%3Cscript%3Ealert%281%29%3C%2Fscript%3E"),
+            b"<script>alert(1)</script>"
+        );
     }
 
     #[test]

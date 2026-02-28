@@ -10,9 +10,7 @@ fn build_xfa_pdf(xfa_content: &[u8]) -> Vec<u8> {
 
     // obj 1: Catalog → Pages (obj 2) + AcroForm (obj 3)
     let obj1_offset = pdf.len();
-    pdf.extend_from_slice(
-        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 3 0 R >>\nendobj\n",
-    );
+    pdf.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R /AcroForm 3 0 R >>\nendobj\n");
 
     // obj 2: Pages
     let obj2_offset = pdf.len();
@@ -24,9 +22,7 @@ fn build_xfa_pdf(xfa_content: &[u8]) -> Vec<u8> {
 
     // obj 4: XFA stream
     let obj4_offset = pdf.len();
-    pdf.extend_from_slice(
-        format!("4 0 obj\n<< /Length {} >>\nstream\n", content_len).as_bytes(),
-    );
+    pdf.extend_from_slice(format!("4 0 obj\n<< /Length {} >>\nstream\n", content_len).as_bytes());
     pdf.extend_from_slice(xfa_content);
     pdf.extend_from_slice(b"\nendstream\nendobj\n");
 
@@ -38,11 +34,8 @@ fn build_xfa_pdf(xfa_content: &[u8]) -> Vec<u8> {
     pdf.extend_from_slice(format!("{:010} 00000 n \n", obj3_offset).as_bytes());
     pdf.extend_from_slice(format!("{:010} 00000 n \n", obj4_offset).as_bytes());
     pdf.extend_from_slice(
-        format!(
-            "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
-            xref_offset
-        )
-        .as_bytes(),
+        format!("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n", xref_offset)
+            .as_bytes(),
     );
     pdf
 }

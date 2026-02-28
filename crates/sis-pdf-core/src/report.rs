@@ -338,17 +338,16 @@ pub fn compute_verdict(report: &Report) -> VerdictSummary {
         })
         .unwrap_or(false);
 
-    let (label, confidence) = if report.summary.critical > 0
-        || (top_chain_score >= 0.9 && has_strong_intent)
-    {
-        ("Malicious".into(), "Strong")
-    } else if report.summary.high > 0 || top_chain_score >= 0.75 || has_strong_intent {
-        ("Suspicious".into(), "Probable")
-    } else if report.summary.medium > 0 || top_chain_score >= 0.5 {
-        ("Anomalous".into(), "Heuristic")
-    } else {
-        ("Clean".into(), "Heuristic")
-    };
+    let (label, confidence) =
+        if report.summary.critical > 0 || (top_chain_score >= 0.9 && has_strong_intent) {
+            ("Malicious".into(), "Strong")
+        } else if report.summary.high > 0 || top_chain_score >= 0.75 || has_strong_intent {
+            ("Suspicious".into(), "Probable")
+        } else if report.summary.medium > 0 || top_chain_score >= 0.5 {
+            ("Anomalous".into(), "Heuristic")
+        } else {
+            ("Clean".into(), "Heuristic")
+        };
 
     let rationale = format!(
         "{} finding(s) ({} Critical, {} High, {} Medium). Top chain score {:.2}.{}",
@@ -357,10 +356,7 @@ pub fn compute_verdict(report: &Report) -> VerdictSummary {
         report.summary.high,
         report.summary.medium,
         top_chain_score,
-        top_intent
-            .as_deref()
-            .map(|i| format!(" Top intent: {}.", i))
-            .unwrap_or_default(),
+        top_intent.as_deref().map(|i| format!(" Top intent: {}.", i)).unwrap_or_default(),
     );
 
     VerdictSummary {
@@ -4278,10 +4274,14 @@ mod tests {
 }
 
 fn summary_from_findings(findings: &[Finding]) -> Summary {
-    let mut summary = Summary { total: findings.len(), critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+    let mut summary =
+        Summary { total: findings.len(), critical: 0, high: 0, medium: 0, low: 0, info: 0 };
     for f in findings {
         match f.severity {
-            Severity::Critical => { summary.critical += 1; summary.high += 1; }
+            Severity::Critical => {
+                summary.critical += 1;
+                summary.high += 1;
+            }
             Severity::High => summary.high += 1,
             Severity::Medium => summary.medium += 1,
             Severity::Low => summary.low += 1,

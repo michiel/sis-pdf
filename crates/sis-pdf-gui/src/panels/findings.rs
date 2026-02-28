@@ -253,10 +253,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut SisApp) {
                 .collect();
             if !chain_indices.is_empty() {
                 ui.separator();
-                if ui
-                    .button(format!("View in chains ({})", chain_indices.len()))
-                    .clicked()
-                {
+                if ui.button(format!("View in chains ({})", chain_indices.len())).clicked() {
                     app.show_chains = true;
                     app.scroll_to_chain = Some(chain_indices[0]);
                 }

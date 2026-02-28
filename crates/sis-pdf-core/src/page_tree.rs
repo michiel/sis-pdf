@@ -233,9 +233,8 @@ mod tests {
         for i in 2..=(depth + 1) {
             let next = i + 1;
             offsets[i] = buf.len();
-            let entry = format!(
-                "{i} 0 obj\n<< /Type /Pages /Kids [{next} 0 R] /Count 1 >>\nendobj\n"
-            );
+            let entry =
+                format!("{i} 0 obj\n<< /Type /Pages /Kids [{next} 0 R] /Count 1 >>\nendobj\n");
             buf.extend_from_slice(entry.as_bytes());
         }
 

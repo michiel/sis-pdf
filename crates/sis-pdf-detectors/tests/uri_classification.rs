@@ -184,11 +184,7 @@ fn uri_annotation_with_unc_path_emits_ntlm_finding() {
         report.findings.iter().map(|f| &f.kind).collect::<Vec<_>>()
     );
 
-    let finding = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "uri_unc_path_ntlm_risk")
-        .unwrap();
+    let finding = report.findings.iter().find(|f| f.kind == "uri_unc_path_ntlm_risk").unwrap();
     assert_eq!(finding.severity, sis_pdf_core::model::Severity::High);
     assert_eq!(finding.confidence, sis_pdf_core::model::Confidence::Strong);
     assert!(finding.meta.contains_key("uri.unc_path"), "meta must contain uri.unc_path");

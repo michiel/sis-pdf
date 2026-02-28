@@ -22,7 +22,9 @@ pub fn score_chain(chain: &ExploitChain) -> (f64, Vec<String>) {
             }
             "uri_javascript_scheme" | "uri_file_scheme" | "uri_data_html_scheme" => {
                 score = score.max(0.85);
-                reasons.push("Action severity: High (Dangerous URI scheme — code execution vector)".into());
+                reasons.push(
+                    "Action severity: High (Dangerous URI scheme — code execution vector)".into(),
+                );
             }
             "uri_command_injection" => {
                 score = score.max(0.8);

@@ -114,10 +114,7 @@ fn javascript_uri_emits_dedicated_high_finding() {
 
     assert_eq!(finding.severity, Severity::High);
     assert_eq!(finding.confidence, Confidence::Strong);
-    assert_eq!(
-        finding.meta.get("uri.classification").map(String::as_str),
-        Some("javascript")
-    );
+    assert_eq!(finding.meta.get("uri.classification").map(String::as_str), Some("javascript"));
     assert!(finding.meta.contains_key("uri.target"));
     assert!(finding.meta.contains_key("uri.scheme"));
 }
@@ -135,10 +132,7 @@ fn file_uri_emits_dedicated_high_finding() {
 
     assert_eq!(finding.severity, Severity::High);
     assert_eq!(finding.confidence, Confidence::Strong);
-    assert_eq!(
-        finding.meta.get("uri.classification").map(String::as_str),
-        Some("file")
-    );
+    assert_eq!(finding.meta.get("uri.classification").map(String::as_str), Some("file"));
 }
 
 #[test]
@@ -154,10 +148,7 @@ fn data_html_uri_emits_dedicated_high_finding() {
 
     assert_eq!(finding.severity, Severity::High);
     assert_eq!(finding.confidence, Confidence::Strong);
-    assert_eq!(
-        finding.meta.get("uri.classification").map(String::as_str),
-        Some("data")
-    );
+    assert_eq!(finding.meta.get("uri.classification").map(String::as_str), Some("data"));
 }
 
 #[test]
@@ -173,10 +164,7 @@ fn start_command_uri_emits_dedicated_high_probable_finding() {
 
     assert_eq!(finding.severity, Severity::High);
     assert_eq!(finding.confidence, Confidence::Probable);
-    assert_eq!(
-        finding.meta.get("uri.classification").map(String::as_str),
-        Some("command")
-    );
+    assert_eq!(finding.meta.get("uri.classification").map(String::as_str), Some("command"));
 }
 
 #[test]
@@ -241,8 +229,7 @@ fn html_in_annotation_t_field_emits_finding() {
 
 #[test]
 fn html_in_annotation_contents_field_emits_finding() {
-    let bytes =
-        build_pdf_with_text_annotation("Normal title", "<script>alert(1)</script>");
+    let bytes = build_pdf_with_text_annotation("Normal title", "<script>alert(1)</script>");
     let report = scan(&bytes);
 
     let finding = report
@@ -324,10 +311,7 @@ fn duplicate_t_field_on_same_page_emits_collision_finding() {
         finding.meta.get("collision.t_value").map(String::as_str) == Some("shared-identifier"),
         "collision.t_value should be the shared identifier"
     );
-    assert!(
-        finding.meta.contains_key("collision.page"),
-        "collision.page should be set"
-    );
+    assert!(finding.meta.contains_key("collision.page"), "collision.page should be set");
     assert!(
         finding.meta.contains_key("collision.refs"),
         "collision.refs should list the colliding object refs"
@@ -358,10 +342,7 @@ fn javascript_uri_emits_uri_classification_summary_finding() {
     assert_eq!(summary.severity, Severity::Info);
     assert_eq!(summary.confidence, Confidence::Strong);
     assert_eq!(summary.meta.get("uri.scheme").map(String::as_str), Some("javascript"));
-    assert_eq!(
-        summary.meta.get("uri.is_javascript_uri").map(String::as_str),
-        Some("true")
-    );
+    assert_eq!(summary.meta.get("uri.is_javascript_uri").map(String::as_str), Some("true"));
 }
 
 #[test]
@@ -389,10 +370,8 @@ fn ip_address_uri_emits_uri_classification_summary() {
 #[test]
 fn percent_encoded_xss_in_annotation_t_field_emits_finding() {
     // %3C = '<', %3E = '>', %2F = '/' → <script>
-    let bytes = build_pdf_with_text_annotation(
-        "%3Cscript%3Ealert%281%29%3C%2Fscript%3E",
-        "Normal content",
-    );
+    let bytes =
+        build_pdf_with_text_annotation("%3Cscript%3Ealert%281%29%3C%2Fscript%3E", "Normal content");
     let report = scan(&bytes);
     assert!(
         report.findings.iter().any(|f| f.kind == "annotation_field_html_injection"),
@@ -403,10 +382,8 @@ fn percent_encoded_xss_in_annotation_t_field_emits_finding() {
 #[test]
 fn html_entity_encoded_xss_in_annotation_contents_emits_finding() {
     // &lt;script&gt; → <script>
-    let bytes = build_pdf_with_text_annotation(
-        "Normal title",
-        "&lt;script&gt;alert(1)&lt;/script&gt;",
-    );
+    let bytes =
+        build_pdf_with_text_annotation("Normal title", "&lt;script&gt;alert(1)&lt;/script&gt;");
     let report = scan(&bytes);
     assert!(
         report.findings.iter().any(|f| f.kind == "annotation_field_html_injection"),

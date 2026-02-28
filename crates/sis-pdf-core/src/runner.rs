@@ -213,9 +213,10 @@ pub fn run_scan_with_detectors(
 
     let ctx = ScanContext::new(bytes, graph, options);
 
-    let scan_deadline: Option<std::time::Instant> = ctx.options.per_file_timeout_ms.map(|ms| {
-        std::time::Instant::now() + std::time::Duration::from_millis(ms)
-    });
+    let scan_deadline: Option<std::time::Instant> = ctx
+        .options
+        .per_file_timeout_ms
+        .map(|ms| std::time::Instant::now() + std::time::Duration::from_millis(ms));
 
     let detection_start = Instant::now();
     profiler.begin_phase("detection");
@@ -1058,9 +1059,10 @@ fn upgrade_emulation_breakpoint_for_global_deletion(findings: &mut Vec<Finding>)
             && finding.confidence == crate::model::Confidence::Tentative
         {
             finding.confidence = crate::model::Confidence::Probable;
-            finding
-                .meta
-                .insert("confidence_upgraded_by".into(), "js_global_deletion_sandbox_bypass".into());
+            finding.meta.insert(
+                "confidence_upgraded_by".into(),
+                "js_global_deletion_sandbox_bypass".into(),
+            );
         }
     }
 }
@@ -3174,7 +3176,11 @@ mod tests {
         let mut findings = vec![make_finding("js_emulation_breakpoint", Confidence::Tentative)];
         upgrade_emulation_breakpoint_for_global_deletion(&mut findings);
         let bp = findings.iter().find(|f| f.kind == "js_emulation_breakpoint").unwrap();
-        assert_eq!(bp.confidence, Confidence::Tentative, "should not upgrade without co-occurring global deletion finding");
+        assert_eq!(
+            bp.confidence,
+            Confidence::Tentative,
+            "should not upgrade without co-occurring global deletion finding"
+        );
         assert!(!bp.meta.contains_key("confidence_upgraded_by"));
     }
 
@@ -3187,6 +3193,9 @@ mod tests {
         upgrade_emulation_breakpoint_for_global_deletion(&mut findings);
         let bp = findings.iter().find(|f| f.kind == "js_emulation_breakpoint").unwrap();
         assert_eq!(bp.confidence, Confidence::Probable);
-        assert!(!bp.meta.contains_key("confidence_upgraded_by"), "no annotation when already at target level");
+        assert!(
+            !bp.meta.contains_key("confidence_upgraded_by"),
+            "no annotation when already at target level"
+        );
     }
 }

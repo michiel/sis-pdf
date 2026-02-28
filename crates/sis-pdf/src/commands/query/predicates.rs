@@ -477,9 +477,7 @@ impl PredicateExpr {
                 PredicateField::Pixels => compare_number(ctx.pixels as f64, *op, value),
                 PredicateField::Risky => compare_bool(ctx.risky, *op, value),
                 PredicateField::Severity => compare_string(ctx.severity.as_deref(), *op, value),
-                PredicateField::Confidence => {
-                    compare_string(ctx.confidence.as_deref(), *op, value)
-                }
+                PredicateField::Confidence => compare_string(ctx.confidence.as_deref(), *op, value),
                 PredicateField::Surface => compare_string(ctx.surface.as_deref(), *op, value),
                 PredicateField::Kind => compare_string(ctx.kind.as_deref(), *op, value),
                 PredicateField::Impact => compare_string(ctx.impact.as_deref(), *op, value),
@@ -493,9 +491,7 @@ impl PredicateExpr {
                     compare_string(ctx.action_initiation.as_deref(), *op, value)
                 }
                 PredicateField::Objects => compare_number(ctx.object_count as f64, *op, value),
-                PredicateField::Evidence => {
-                    compare_number(ctx.evidence_count as f64, *op, value)
-                }
+                PredicateField::Evidence => compare_number(ctx.evidence_count as f64, *op, value),
                 PredicateField::Name => compare_string(ctx.name.as_deref(), *op, value),
                 PredicateField::Magic => compare_string(ctx.magic.as_deref(), *op, value),
                 PredicateField::Hash => compare_string(ctx.hash.as_deref(), *op, value),
@@ -508,8 +504,7 @@ impl PredicateExpr {
                     compare_number(lhs, *op, value)
                 }
                 PredicateField::Url => {
-                    let candidate =
-                        ctx.meta.get("url").or_else(|| ctx.meta.get("xfa.submit.url"));
+                    let candidate = ctx.meta.get("url").or_else(|| ctx.meta.get("xfa.submit.url"));
                     compare_string(candidate.map(|s| s.as_str()), *op, value)
                 }
                 PredicateField::Field => {
@@ -518,8 +513,7 @@ impl PredicateExpr {
                     compare_string(candidate.map(|s| s.as_str()), *op, value)
                 }
                 PredicateField::HasDoctype => {
-                    let actual =
-                        ctx.meta.get("has_doctype").map(|v| v == "true").unwrap_or(false);
+                    let actual = ctx.meta.get("has_doctype").map(|v| v == "true").unwrap_or(false);
                     compare_bool(actual, *op, value)
                 }
                 PredicateField::Meta(key) => compare_meta(ctx.meta.get(key), *op, value),

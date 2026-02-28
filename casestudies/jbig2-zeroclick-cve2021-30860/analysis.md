@@ -48,7 +48,12 @@ Key objects:
 - `Phishing`: score=10 (Strong) — 5 content deception signals
 - Verdict: Malicious/Strong/0.9
 
-**Chain gap observed**: All five `image.zero_click_jbig2` findings remain in separate singleton chains (score 0.9 each). There is no "JBIG2 zero-click cluster" chain that groups them into a single exploit primitive chain. The `content_invisible_text` findings are not linked to JBIG2 findings despite co-occurring on the same pages.
+**Chain status (2026-02-28 uplift run)**: the major singleton-fragmentation gap is partially closed. Chain output now includes:
+- `Image anomaly cluster (17 images)`
+- `Decoder risk cluster (5 streams)`
+- `Stream type mismatch cluster (5 streams)`
+
+Residual gap: these clusters are still separate from the phishing-overlay (`content_invisible_text`) path, so one single end-to-end JBIG2+phishing narrative chain is not yet produced.
 
 ---
 
@@ -87,10 +92,6 @@ Key objects:
 
 ## Chain Assessment
 
-The current chain architecture does not group the 5 JBIG2 findings into a cluster chain. Each fires as a separate singleton chain with `chain_completeness=0.0` and `edges=0`. The correct representation would be a single `image.zero_click_jbig2` cluster chain (analogous to the "Image anomaly cluster" pattern in `9ff24c46`) that:
-- Groups all 5 JBIG2 streams as members
-- Attaches a `Critical` or `High` severity label to the cluster
-- Synthesises edges between co-located JBIG2 and `decoder_risk_present` findings
-- Links to the `content_invisible_text` findings on the same pages
+The chain synthesiser now groups JBIG2-adjacent findings into dedicated clusters, which closes the original "5 fully isolated singleton chains" failure mode. Remaining work is cross-cluster correlation so `image.zero_click_jbig2`, `decoder_risk_present`, and `content_invisible_text` appear in a unified exploit narrative.
 
-This is a concrete gap documented in `plans/20260228-corpus-analysis-uplift.md`.
+Related plan tracking: `plans/20260228-corpus-perf-chain-uplift.md`.

@@ -1070,7 +1070,8 @@ const ACROBAT_FILE_APIS: &[&str] =
     &["openDoc", "launchURL", "importTextData", "submitForm", "saveAs", "mailDoc"];
 
 /// File extensions indicating an executable or system-level target.
-const EXECUTABLE_PATH_EXTENSIONS: &[&str] = &[".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".sh"];
+const EXECUTABLE_PATH_EXTENSIONS: &[&str] =
+    &[".exe", ".dll", ".bat", ".cmd", ".ps1", ".vbs", ".sh"];
 
 fn has_acrobat_file_api_call(calls: &[String]) -> bool {
     calls.iter().any(|c| ACROBAT_FILE_APIS.iter().any(|api| c.as_str() == *api))
@@ -1085,9 +1086,10 @@ fn call_args_contain_executable_target(call_args: &[String]) -> bool {
 }
 
 fn adobe_compat_in_executed_profiles(summary: &ProfileDivergenceSummary) -> bool {
-    summary.executed_profiles.iter().any(|id| {
-        id.starts_with("pdf_reader:adobe:") && id.ends_with(":compat")
-    })
+    summary
+        .executed_profiles
+        .iter()
+        .any(|id| id.starts_with("pdf_reader:adobe:") && id.ends_with(":compat"))
 }
 
 fn apply_profile_scoring(

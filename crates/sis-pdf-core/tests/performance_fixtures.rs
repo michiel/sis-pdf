@@ -152,10 +152,5 @@ fn batch_of_corpus_fixtures_completes_within_global_budget() {
     let elapsed = start.elapsed().as_secs();
     // 120 s in debug (unoptimised); 30 s in release
     let budget = if cfg!(debug_assertions) { 120 } else { 30 };
-    assert!(
-        elapsed <= budget,
-        "batch scan exceeded {}s budget: {}s",
-        budget,
-        elapsed
-    );
+    assert!(elapsed <= budget, "batch scan exceeded {}s budget: {}s", budget, elapsed);
 }

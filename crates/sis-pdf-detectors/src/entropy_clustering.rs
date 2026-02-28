@@ -39,8 +39,7 @@ impl Detector for EntropyClusteringDetector {
                 continue;
             };
             let span = stream.data_span;
-            let raw =
-                ctx.bytes.get(span.start as usize..span.end as usize).unwrap_or(&[]);
+            let raw = ctx.bytes.get(span.start as usize..span.end as usize).unwrap_or(&[]);
             if raw.is_empty() {
                 continue;
             }
@@ -73,9 +72,7 @@ impl Detector for EntropyClusteringDetector {
             severity: Severity::Low,
             confidence: Confidence::Probable,
             impact: Impact::Unknown,
-            title: format!(
-                "High proportion of high-entropy stream objects ({ratio_pct}%)"
-            ),
+            title: format!("High proportion of high-entropy stream objects ({ratio_pct}%)"),
             description: format!(
                 "{high_entropy_count} of {total_stream_count} stream objects have Shannon entropy \
                  >= {HIGH_ENTROPY_THRESHOLD:.1} (ratio {ratio:.2}), indicating packed or \

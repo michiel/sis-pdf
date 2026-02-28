@@ -125,7 +125,9 @@ pub fn correlate_content_stream_findings(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity};
+    use crate::model::{
+        AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Severity,
+    };
 
     fn make_finding(
         id: &str,
@@ -148,7 +150,13 @@ mod tests {
     }
 
     fn decoded_span(offset: u64) -> EvidenceSpan {
-        EvidenceSpan { source: EvidenceSource::Decoded, offset, length: 10, origin: None, note: None }
+        EvidenceSpan {
+            source: EvidenceSource::Decoded,
+            offset,
+            length: 10,
+            origin: None,
+            note: None,
+        }
     }
 
     #[test]
@@ -161,13 +169,8 @@ mod tests {
             vec!["7 0 obj".to_string()],
             vec![],
         );
-        let results = correlate_content_stream_findings(
-            &[finding],
-            (15, 0),
-            Some(page_ref),
-            4096,
-            1024,
-        );
+        let results =
+            correlate_content_stream_findings(&[finding], (15, 0), Some(page_ref), 4096, 1024);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].finding_id, "abc123");
         assert_eq!(results[0].kind, "content_invisible_text");
@@ -182,13 +185,7 @@ mod tests {
             vec!["15 0 obj".to_string()],
             vec![],
         );
-        let results = correlate_content_stream_findings(
-            &[finding],
-            (15, 0),
-            None,
-            4096,
-            1024,
-        );
+        let results = correlate_content_stream_findings(&[finding], (15, 0), None, 4096, 1024);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].kind, "stream_high_entropy");
     }
@@ -203,13 +200,8 @@ mod tests {
             vec!["15 0 obj".to_string(), "7 0 obj".to_string()],
             vec![],
         );
-        let results = correlate_content_stream_findings(
-            &[finding],
-            (15, 0),
-            Some((7, 0)),
-            4096,
-            1024,
-        );
+        let results =
+            correlate_content_stream_findings(&[finding], (15, 0), Some((7, 0)), 4096, 1024);
         assert_eq!(results.len(), 1, "duplicate should be deduplicated");
     }
 
@@ -222,13 +214,7 @@ mod tests {
             vec!["99 0 obj".to_string()],
             vec![],
         );
-        let results = correlate_content_stream_findings(
-            &[finding],
-            (15, 0),
-            None,
-            4096,
-            1024,
-        );
+        let results = correlate_content_stream_findings(&[finding], (15, 0), None, 4096, 1024);
         assert!(results.is_empty());
     }
 
@@ -242,13 +228,7 @@ mod tests {
             vec![decoded_span(5000)],     // but evidence falls within stream range
         );
         // Stream at raw_stream_offset=4096, decoded_len=2048 → range [4096, 6143]
-        let results = correlate_content_stream_findings(
-            &[finding],
-            (15, 0),
-            None,
-            4096,
-            2048,
-        );
+        let results = correlate_content_stream_findings(&[finding], (15, 0), None, 4096, 2048);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].decoded_offset, Some(5000));
     }
@@ -262,21 +242,33 @@ mod tests {
             vec!["99 0 obj".to_string()],
             vec![decoded_span(10000)], // outside stream range
         );
-        let results = correlate_content_stream_findings(
-            &[finding],
-            (15, 0),
-            None,
-            4096,
-            1024,
-        );
+        let results = correlate_content_stream_findings(&[finding], (15, 0), None, 4096, 1024);
         assert!(results.is_empty());
     }
 
     #[test]
     fn correlate_sorted_by_severity_descending() {
-        let f1 = make_finding("low", "content_invisible_text", Severity::Low, vec!["15 0 obj".to_string()], vec![]);
-        let f2 = make_finding("high", "stream_high_entropy", Severity::High, vec!["15 0 obj".to_string()], vec![]);
-        let f3 = make_finding("med", "stream_zlib_bomb", Severity::Medium, vec!["15 0 obj".to_string()], vec![]);
+        let f1 = make_finding(
+            "low",
+            "content_invisible_text",
+            Severity::Low,
+            vec!["15 0 obj".to_string()],
+            vec![],
+        );
+        let f2 = make_finding(
+            "high",
+            "stream_high_entropy",
+            Severity::High,
+            vec!["15 0 obj".to_string()],
+            vec![],
+        );
+        let f3 = make_finding(
+            "med",
+            "stream_zlib_bomb",
+            Severity::Medium,
+            vec!["15 0 obj".to_string()],
+            vec![],
+        );
         let results = correlate_content_stream_findings(&[f1, f2, f3], (15, 0), None, 0, 0);
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].severity, Severity::High);

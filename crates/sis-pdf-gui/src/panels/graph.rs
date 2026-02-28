@@ -11,7 +11,9 @@ pub enum GraphViewMode {
     Event,
     StagedDag,
     /// Operator/resource graph for a single content stream.
-    ContentStream { stream_ref: (u32, u16) },
+    ContentStream {
+        stream_ref: (u32, u16),
+    },
 }
 
 /// Persistent state for the graph viewer panel.
@@ -131,22 +133,22 @@ impl Default for GraphViewerState {
 /// Node type colour mapping.
 fn node_colour(obj_type: &str) -> egui::Color32 {
     match obj_type.to_lowercase().as_str() {
-        "event" => egui::Color32::from_rgb(245, 170, 66),     // amber
-        "outcome" => egui::Color32::from_rgb(220, 80, 80),    // red
+        "event" => egui::Color32::from_rgb(245, 170, 66), // amber
+        "outcome" => egui::Color32::from_rgb(220, 80, 80), // red
         "collapse" => egui::Color32::from_rgb(120, 120, 120), // dark grey
-        "page" => egui::Color32::from_rgb(70, 130, 230),      // blue
-        "action" => egui::Color32::from_rgb(220, 60, 60),     // red
-        "stream" => egui::Color32::from_rgb(60, 180, 80),     // green
-        "font" => egui::Color32::from_rgb(160, 160, 160),     // grey
+        "page" => egui::Color32::from_rgb(70, 130, 230),  // blue
+        "action" => egui::Color32::from_rgb(220, 60, 60), // red
+        "stream" => egui::Color32::from_rgb(60, 180, 80), // green
+        "font" => egui::Color32::from_rgb(160, 160, 160), // grey
         "catalog" | "catalogue" => egui::Color32::from_rgb(160, 80, 200), // purple
-        "image" => egui::Color32::from_rgb(230, 160, 40),     // orange
+        "image" => egui::Color32::from_rgb(230, 160, 40), // orange
         // Content stream node types
-        "content_text" => egui::Color32::from_rgb(70, 130, 230),       // blue
+        "content_text" => egui::Color32::from_rgb(70, 130, 230), // blue
         "content_image" | "content_inline_image" => egui::Color32::from_rgb(60, 180, 80), // green
-        "content_form_xobj" => egui::Color32::from_rgb(40, 180, 160),  // teal
-        "content_marked" => egui::Color32::from_rgb(150, 150, 150),    // grey
+        "content_form_xobj" => egui::Color32::from_rgb(40, 180, 160), // teal
+        "content_marked" => egui::Color32::from_rgb(150, 150, 150), // grey
         "content_gstate" | "content_ops" => egui::Color32::from_rgb(190, 190, 190), // light grey
-        _ => egui::Color32::from_rgb(140, 140, 140),                   // default grey
+        _ => egui::Color32::from_rgb(140, 140, 140),             // default grey
     }
 }
 
@@ -752,11 +754,14 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
     // If a ContentStreamExec node is selected in the current graph, Content mode can be
     // activated for its target stream without requiring the Content Stream panel to be
     // opened first.
-    let selected_stream_ref: Option<(u32, u16)> =
-        app.graph_state.selected_node.and_then(|idx| {
-            let node = app.graph_state.graph.as_ref()?.nodes.get(idx)?;
-            if node.is_content_stream_exec { node.target_obj } else { None }
-        });
+    let selected_stream_ref: Option<(u32, u16)> = app.graph_state.selected_node.and_then(|idx| {
+        let node = app.graph_state.graph.as_ref()?.nodes.get(idx)?;
+        if node.is_content_stream_exec {
+            node.target_obj
+        } else {
+            None
+        }
+    });
 
     // All page-content streams available for the selector, derived from ObjectData so it
     // works in every graph mode (not just Event mode where event nodes are present).
@@ -820,19 +825,17 @@ fn show_toolbar(ui: &mut egui::Ui, app: &mut SisApp) {
                 .map(|(o, g)| format!("stream {o} {g}"))
                 .unwrap_or_else(|| "select stream".to_string());
             let mut switch_to: Option<(u32, u16)> = None;
-            egui::ComboBox::from_id_salt("content_stream_selector")
-                .selected_text(label)
-                .show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("content_stream_selector").selected_text(label).show_ui(
+                ui,
+                |ui| {
                     for &(obj, gen) in &all_content_streams {
                         let selected = active == Some((obj, gen));
-                        if ui
-                            .selectable_label(selected, format!("stream {obj} {gen}"))
-                            .clicked()
-                        {
+                        if ui.selectable_label(selected, format!("stream {obj} {gen}")).clicked() {
                             switch_to = Some((obj, gen));
                         }
                     }
-                });
+                },
+            );
             if let Some((obj, gen)) = switch_to {
                 open_content_stream(app, obj, gen);
             }
@@ -1043,7 +1046,9 @@ fn switch_graph_mode(app: &mut SisApp, mode: GraphViewMode) {
 
 fn build_content_stream_graph_for_gui(app: &mut SisApp) -> Result<GraphData, GraphError> {
     let summary = app.content_stream_state.summary.as_ref().ok_or_else(|| {
-        GraphError::ParseFailed("No content stream summary available. Open a content stream first.".to_string())
+        GraphError::ParseFailed(
+            "No content stream summary available. Open a content stream first.".to_string(),
+        )
     })?;
     let findings = &app.content_stream_state.correlated_findings;
     let xobject_children = &app.content_stream_state.xobject_children;

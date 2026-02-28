@@ -7,12 +7,15 @@ use std::collections::{BTreeSet, HashSet};
 use std::str;
 
 use crate::encryption_obfuscation::{encryption_meta_from_dict, resolve_encrypt_dict};
-use crate::uri_classification::analyze_uri_content;
+use crate::uri_classification::{
+    analyze_uri_content, calculate_uri_risk_score, risk_score_to_severity, TriggerMechanism,
+    UriTrigger,
+};
 use sha2::{Digest, Sha256};
 use sis_pdf_core::detect::{Cost, Detector, Needs};
 use sis_pdf_core::embedded_index::{build_embedded_artefact_index, EmbeddedArtefactRef};
 use sis_pdf_core::evidence::{decoded_evidence_span, preview_ascii, EvidenceBuilder};
-use sis_pdf_core::model::{AttackSurface, Confidence, Finding, Impact, Severity};
+use sis_pdf_core::model::{AttackSurface, Confidence, EvidenceSource, Finding, Impact, Severity};
 use sis_pdf_core::scan::span_to_evidence;
 use sis_pdf_core::stream_analysis::{analyse_stream, StreamLimits};
 use sis_pdf_core::timeout::TimeoutChecker;
@@ -1756,10 +1759,7 @@ fn content_is_not_js(data: &[u8]) -> bool {
     const MAX_PEEK: usize = 16;
     let peek = &data[..data.len().min(MAX_PEEK)];
     // Reject PDF dict, PostScript, or PDF header markers
-    if peek.starts_with(b"<<")
-        || peek.starts_with(b"%!")
-        || peek.starts_with(b"%PDF")
-    {
+    if peek.starts_with(b"<<") || peek.starts_with(b"%!") || peek.starts_with(b"%PDF") {
         return true;
     }
     // Reject binary data (null bytes in first 4 bytes)
@@ -2061,8 +2061,10 @@ impl Detector for JavaScriptDetector {
                             bypass_meta.insert("payload.preview".into(), preview.clone());
                         }
                         bypass_meta.insert("object.ref".into(), object_ref.clone());
-                        bypass_meta
-                            .insert("query.next".into(), format!("object {} {}", entry.obj, entry.gen));
+                        bypass_meta.insert(
+                            "query.next".into(),
+                            format!("object {} {}", entry.obj, entry.gen),
+                        );
                         findings.push(Finding {
                             id: String::new(),
                             surface: AttackSurface::JavaScript,
@@ -2092,8 +2094,7 @@ impl Detector for JavaScriptDetector {
                             == Some("true")
                     {
                         let mut tamper_meta = std::collections::HashMap::new();
-                        tamper_meta
-                            .insert("js.prototype_chain_manipulation".into(), "true".into());
+                        tamper_meta.insert("js.prototype_chain_manipulation".into(), "true".into());
                         tamper_meta.insert("js.dynamic_eval_construction".into(), "true".into());
                         if let Some(preview) = meta.get("payload.decoded_preview") {
                             tamper_meta.insert("payload.preview".into(), preview.clone());
@@ -2182,11 +2183,19 @@ impl Detector for LaunchActionDetector {
                 .file_offset(dict.span.start, dict.span.len() as u32, "Action dict")
                 .build();
             let mut meta = std::collections::HashMap::new();
-            if let Some(enriched) =
-                payload_from_dict(ctx, dict, &[b"/F", b"/Win"], "Action payload")
-            {
+            if let Some(enriched) = payload_from_dict(ctx, dict, &[b"/F"], "Action payload") {
                 evidence.extend(enriched.evidence);
                 meta.extend(enriched.meta);
+            }
+            let mut launch_url_sources: Vec<(String, String)> = Vec::new();
+            if let Some((_, value)) = dict.get_first(b"/Win") {
+                if let Some(win_details) = extract_launch_win_details(ctx, value) {
+                    evidence.extend(win_details.evidence);
+                    for (key, value) in win_details.meta {
+                        meta.insert(key, value);
+                    }
+                    launch_url_sources.extend(win_details.url_sources);
+                }
             }
 
             let mut tracker = LaunchTargetTracker::default();
@@ -2203,6 +2212,9 @@ impl Detector for LaunchActionDetector {
 
             if let Some(path) = tracker.target_path.clone() {
                 meta.insert("launch.target_path".into(), path);
+            }
+            if let Some(path) = meta.get("launch.target_path") {
+                launch_url_sources.push(("launch.target_path".into(), path.clone()));
             }
             meta.insert("launch.target_type".into(), tracker.target_type().to_string());
             if let Some(hash) = tracker.embedded_file_hash.clone() {
@@ -2276,7 +2288,7 @@ impl Detector for LaunchActionDetector {
                     title: "Launch action targets embedded file".into(),
                     description: "Launch action targets an embedded file specification.".into(),
                     objects,
-                    evidence,
+                    evidence: evidence.clone(),
                     remediation: Some("Extract and inspect the embedded target.".into()),
                     meta: extra_meta,
                     action_type: None,
@@ -2288,6 +2300,13 @@ impl Detector for LaunchActionDetector {
                 apply_action_telemetry(&mut embedded_finding, &action_telemetry);
                 findings.push(embedded_finding);
             }
+
+            findings.extend(build_launch_embedded_url_findings(
+                entry,
+                &launch_url_sources,
+                &evidence,
+                &action_telemetry,
+            ));
         }
         Ok(findings)
     }
@@ -6921,6 +6940,12 @@ struct PayloadEnrichment {
     meta: std::collections::HashMap<String, String>,
 }
 
+struct LaunchWinDetails {
+    evidence: Vec<sis_pdf_core::model::EvidenceSpan>,
+    meta: std::collections::HashMap<String, String>,
+    url_sources: Vec<(String, String)>,
+}
+
 pub(crate) struct ActionDetails {
     pub evidence: Vec<sis_pdf_core::model::EvidenceSpan>,
     pub meta: std::collections::HashMap<String, String>,
@@ -6979,6 +7004,207 @@ fn payload_string(obj: &sis_pdf_pdf::object::PdfObj<'_>) -> Vec<u8> {
         PdfAtom::Name(n) => n.decoded.clone(),
         _ => Vec::new(),
     }
+}
+
+fn extract_launch_win_details(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    win_obj: &PdfObj<'_>,
+) -> Option<LaunchWinDetails> {
+    match &win_obj.atom {
+        PdfAtom::Dict(dict) => extract_launch_win_details_from_dict(ctx, dict),
+        PdfAtom::Ref { .. } => {
+            let entry = ctx.graph.resolve_ref(win_obj)?;
+            match entry.atom {
+                PdfAtom::Dict(dict) => extract_launch_win_details_from_dict(ctx, &dict),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+fn extract_launch_win_details_from_dict(
+    ctx: &sis_pdf_core::scan::ScanContext,
+    win_dict: &PdfDict<'_>,
+) -> Option<LaunchWinDetails> {
+    let mut evidence = Vec::new();
+    let mut meta = std::collections::HashMap::new();
+    let mut url_sources = Vec::new();
+    let mut extracted_any = false;
+
+    for (key, meta_key, source_name) in [
+        (b"/F".as_slice(), "launch.win.f", "/Win /F"),
+        (b"/P".as_slice(), "launch.win.p", "/Win /P"),
+        (b"/D".as_slice(), "launch.win.d", "/Win /D"),
+        (b"/O".as_slice(), "launch.win.o", "/Win /O"),
+    ] {
+        let Some((k, value_obj)) = win_dict.get_first(key) else {
+            continue;
+        };
+        evidence.push(span_to_evidence(k.span, &format!("Launch key {}", source_name)));
+        evidence.push(span_to_evidence(value_obj.span, &format!("Launch value {}", source_name)));
+
+        let resolved = resolve_payload(ctx, value_obj);
+        if let Some(payload) = resolved.payload {
+            extracted_any = true;
+            let value = String::from_utf8_lossy(&payload.bytes).trim().to_string();
+            if !value.is_empty() {
+                meta.insert(meta_key.into(), value.clone());
+                if meta_key == "launch.win.f" {
+                    meta.insert("launch.target_path".into(), value.clone());
+                }
+                if matches!(meta_key, "launch.win.f" | "launch.win.p") {
+                    url_sources.push((meta_key.into(), value));
+                }
+            }
+            if let Some(origin) = payload.origin {
+                evidence.push(decoded_evidence_span(
+                    origin,
+                    &payload.bytes,
+                    &format!("Decoded launch value {}", source_name),
+                ));
+            }
+        }
+    }
+
+    if !extracted_any {
+        return None;
+    }
+
+    Some(LaunchWinDetails { evidence, meta, url_sources })
+}
+
+fn extract_embedded_urls(text: &str) -> Vec<(String, usize)> {
+    fn is_boundary(c: char) -> bool {
+        c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']')
+    }
+
+    let mut hits = Vec::new();
+    let mut seen = HashSet::new();
+    for needle in ["https://", "http://", "\\\\"] {
+        let mut cursor = 0usize;
+        while cursor < text.len() {
+            let Some(rel) = text[cursor..].find(needle) else {
+                break;
+            };
+            let start = cursor + rel;
+            let tail = &text[start..];
+            let end_rel = tail.find(is_boundary).unwrap_or(tail.len());
+            let mut candidate = tail[..end_rel].trim_end_matches(['.', ',', ';']).to_string();
+            if needle == "\\\\" && !candidate.contains('\\') {
+                cursor = start + needle.len();
+                continue;
+            }
+            if candidate.len() <= needle.len() {
+                cursor = start + needle.len();
+                continue;
+            }
+            if candidate.ends_with(':') {
+                candidate.pop();
+            }
+            let key = candidate.to_ascii_lowercase();
+            if seen.insert(key) {
+                hits.push((candidate, start));
+            }
+            cursor = start + needle.len();
+        }
+    }
+    hits
+}
+
+fn build_launch_embedded_url_findings(
+    entry: &ObjEntry<'_>,
+    sources: &[(String, String)],
+    base_evidence: &[sis_pdf_core::model::EvidenceSpan],
+    action_telemetry: &ActionTelemetry,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    let mut dedup = HashSet::new();
+    for (source_key, source_value) in sources {
+        for (url, offset) in extract_embedded_urls(source_value) {
+            let dedup_key = format!("{}:{}", source_key, url.to_ascii_lowercase());
+            if !dedup.insert(dedup_key) {
+                continue;
+            }
+
+            let uri = analyze_uri_content(url.as_bytes());
+            let trigger = UriTrigger {
+                mechanism: TriggerMechanism::OpenAction,
+                event: None,
+                automatic: true,
+                js_involved: source_key == "launch.win.p",
+            };
+            let risk = calculate_uri_risk_score(&uri, &None, &trigger);
+            let severity = match risk_score_to_severity(risk) {
+                Severity::Info | Severity::Low => Severity::Medium,
+                other => other,
+            };
+            let confidence = if uri.has_unc_path || uri.is_javascript_uri || uri.is_file_uri {
+                Confidence::Strong
+            } else {
+                Confidence::Probable
+            };
+
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("launch.embedded_url".into(), url.clone());
+            meta.insert("launch.embedded_source".into(), source_key.clone());
+            meta.insert("launch.embedded_url_offset".into(), offset.to_string());
+            meta.insert("uri.url".into(), url.clone());
+            meta.insert("uri.scheme".into(), uri.scheme.clone());
+            meta.insert("uri.risk_score".into(), risk.to_string());
+            meta.insert("uri.obfuscation".into(), uri.obfuscation_level.as_str().into());
+            if let Some(domain) = &uri.domain {
+                meta.insert("uri.domain".into(), domain.clone());
+            }
+            if uri.has_data_exfil_pattern {
+                meta.insert("uri.data_exfil_pattern".into(), "true".into());
+            }
+            if uri.suspicious_tld {
+                meta.insert("uri.suspicious_tld".into(), "true".into());
+            }
+            if uri.has_unc_path {
+                meta.insert("uri.unc_path".into(), "true".into());
+            }
+
+            let mut evidence = base_evidence.to_vec();
+            evidence.push(sis_pdf_core::model::EvidenceSpan {
+                source: EvidenceSource::Decoded,
+                offset: offset as u64,
+                length: url.len().min(u32::MAX as usize) as u32,
+                origin: None,
+                note: Some(format!(
+                    "Embedded URL extracted from {} at offset {}",
+                    source_key, offset
+                )),
+            });
+
+            let mut finding = Finding {
+                id: String::new(),
+                surface: AttackSurface::Actions,
+                kind: "launch_win_embedded_url".into(),
+                severity,
+                confidence,
+                impact: Impact::Medium,
+                title: "Embedded URL in launch parameters".into(),
+                description: "Launch action parameters contain an embedded network target.".into(),
+                objects: vec![format!("{} {} obj", entry.obj, entry.gen)],
+                evidence,
+                remediation: Some(
+                    "Inspect launch parameters and block network retrieval from launch commands."
+                        .into(),
+                ),
+                meta,
+                action_type: None,
+                action_target: None,
+                action_initiation: None,
+                yara: None,
+                positions: Vec::new(),
+            };
+            apply_action_telemetry(&mut finding, action_telemetry);
+            findings.push(finding);
+        }
+    }
+    findings
 }
 
 fn payload_from_dict(

@@ -166,15 +166,8 @@ impl Detector for ContentStreamExecUpliftDetector {
 }
 
 /// JS-like patterns that would be suspicious as rendered text content.
-const JS_TEXT_PATTERNS: &[&[u8]] = &[
-    b"function",
-    b"eval(",
-    b"Function(",
-    b"window.",
-    b"document.",
-    b"<script",
-    b"javascript:",
-];
+const JS_TEXT_PATTERNS: &[&[u8]] =
+    &[b"function", b"eval(", b"Function(", b"window.", b"document.", b"<script", b"javascript:"];
 
 /// Scan Tj / TJ / ' / " text operator string operands for JS-like patterns.
 /// Returns deduplicated list of matched pattern strings.
@@ -366,11 +359,7 @@ fn is_visible_render_op(op: &str) -> bool {
 
 fn detect_resource_cluster_without_markers(ops: &[ContentOp]) -> Option<MarkedCandidate> {
     // Hard cap: only examine the first MAX_CONTENT_OPS_SCAN ops to bound worst case
-    let ops = if ops.len() > MAX_CONTENT_OPS_SCAN {
-        &ops[..MAX_CONTENT_OPS_SCAN]
-    } else {
-        ops
-    };
+    let ops = if ops.len() > MAX_CONTENT_OPS_SCAN { &ops[..MAX_CONTENT_OPS_SCAN] } else { ops };
     if ops.len() < MIN_OPS_FOR_CLUSTER {
         return None;
     }
@@ -385,14 +374,8 @@ fn detect_resource_cluster_without_markers(ops: &[ContentOp]) -> Option<MarkedCa
         if chunk.len() < MIN_OPS_FOR_CLUSTER {
             break;
         }
-        let resource_ops = chunk
-            .iter()
-            .filter(|op| matches!(op.op.as_str(), "Do" | "Tf"))
-            .count();
-        let visible_ops = chunk
-            .iter()
-            .filter(|op| is_visible_render_op(op.op.as_str()))
-            .count();
+        let resource_ops = chunk.iter().filter(|op| matches!(op.op.as_str(), "Do" | "Tf")).count();
+        let visible_ops = chunk.iter().filter(|op| is_visible_render_op(op.op.as_str())).count();
         let fraction = resource_ops as f64 / chunk.len() as f64;
         if fraction > max_resource_fraction {
             max_resource_fraction = fraction;
@@ -800,8 +783,7 @@ fn detect_inline_image_anomaly(ops: &[ContentOp]) -> Option<InlineImageAnomalyMe
 
     let total_ops = ops.len();
     let render_ops = ops.iter().filter(|op| is_visible_render_op(op.op.as_str())).count();
-    let render_fraction =
-        if total_ops == 0 { 1.0 } else { render_ops as f64 / total_ops as f64 };
+    let render_fraction = if total_ops == 0 { 1.0 } else { render_ops as f64 / total_ops as f64 };
 
     let max_data_bytes = images.iter().map(|img| img.data_bytes).max().unwrap_or(0);
     let oversized = max_data_bytes > 64 * 1024;
@@ -822,9 +804,7 @@ fn detect_inline_image_anomaly(ops: &[ContentOp]) -> Option<InlineImageAnomalyMe
 
     let filter_chains_csv = images
         .iter()
-        .filter_map(|img| {
-            if img.filters.is_empty() { None } else { Some(img.filters.join("+")) }
-        })
+        .filter_map(|img| if img.filters.is_empty() { None } else { Some(img.filters.join("+")) })
         .collect::<Vec<_>>()
         .join(",");
 
@@ -964,7 +944,12 @@ mod tests {
         // Small image (100 bytes), no suspicious filters, plenty of text ops → no anomaly
         let mut ops = vec![
             make_op("BT", vec![], 0, 2),
-            make_op("Tf", vec![ContentOperand::Name("/F1".to_string()), ContentOperand::Number(12.0)], 2, 10),
+            make_op(
+                "Tf",
+                vec![ContentOperand::Name("/F1".to_string()), ContentOperand::Number(12.0)],
+                2,
+                10,
+            ),
         ];
         // Add many Tj ops to ensure render_fraction > 10%
         for k in 0..20u64 {

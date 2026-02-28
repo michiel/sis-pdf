@@ -2689,9 +2689,7 @@ mod tests {
 
     #[test]
     fn async_function_constructor_bypass_detected() {
-        assert!(contains_dynamic_eval_construction(
-            b"(async function(){}).constructor(\"x\")"
-        ));
+        assert!(contains_dynamic_eval_construction(b"(async function(){}).constructor(\"x\")"));
     }
 
     #[test]

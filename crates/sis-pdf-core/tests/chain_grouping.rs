@@ -202,11 +202,7 @@ fn uri_javascript_scheme_finding_scores_high_in_chain() {
     let finding = base_finding("f1", "uri_javascript_scheme", "4 0 obj");
     let (chains, _) = synthesise_chains(&[finding], true);
     let chain = chains.first().expect("chain");
-    assert!(
-        chain.score >= 0.85,
-        "uri_javascript_scheme should score >= 0.85, got {}",
-        chain.score
-    );
+    assert!(chain.score >= 0.85, "uri_javascript_scheme should score >= 0.85, got {}", chain.score);
     assert!(
         chain.reasons.iter().any(|r| r.contains("Dangerous URI scheme")),
         "chain reasons should mention dangerous URI scheme"
@@ -226,11 +222,7 @@ fn uri_data_html_scheme_finding_scores_high_in_chain() {
     let finding = base_finding("f1", "uri_data_html_scheme", "4 0 obj");
     let (chains, _) = synthesise_chains(&[finding], true);
     let chain = chains.first().expect("chain");
-    assert!(
-        chain.score >= 0.85,
-        "uri_data_html_scheme should score >= 0.85, got {}",
-        chain.score
-    );
+    assert!(chain.score >= 0.85, "uri_data_html_scheme should score >= 0.85, got {}", chain.score);
 }
 
 #[test]
@@ -238,11 +230,7 @@ fn uri_command_injection_finding_scores_high_in_chain() {
     let finding = base_finding("f1", "uri_command_injection", "4 0 obj");
     let (chains, _) = synthesise_chains(&[finding], true);
     let chain = chains.first().expect("chain");
-    assert!(
-        chain.score >= 0.8,
-        "uri_command_injection should score >= 0.8, got {}",
-        chain.score
-    );
+    assert!(chain.score >= 0.8, "uri_command_injection should score >= 0.8, got {}", chain.score);
 }
 
 #[test]
@@ -254,5 +242,28 @@ fn uri_scheme_finding_assigned_as_action_key_in_chain() {
         chain.notes.get("action.key").map(String::as_str),
         Some("uri_javascript_scheme"),
         "uri_javascript_scheme finding should be assigned as action.key"
+    );
+}
+
+#[test]
+fn launch_url_chain_assigns_trigger_action_payload_and_edges() {
+    let trigger = base_finding("f1", "action_automatic_trigger", "70 0 obj");
+    let action = base_finding("f2", "launch_action_present", "70 0 obj");
+    let payload = base_finding("f3", "launch_win_embedded_url", "70 0 obj");
+
+    let (chains, _) = synthesise_chains(&[trigger, action, payload], true);
+    let chain = chains
+        .iter()
+        .find(|chain| chain.findings.len() >= 3 && chain.findings.contains(&"f3".to_string()))
+        .expect("expected merged launch chain with embedded URL payload");
+
+    assert_eq!(chain.trigger.as_deref(), Some("action_automatic_trigger"));
+    assert_eq!(chain.action.as_deref(), Some("launch_action_present"));
+    assert_eq!(chain.payload.as_deref(), Some("uri"));
+    assert!(!chain.edges.is_empty(), "expected synthesized edges for trigger/action/payload chain");
+    assert!(
+        chain.chain_completeness >= 0.4,
+        "expected non-trivial completeness for launch chain, got {}",
+        chain.chain_completeness
     );
 }

@@ -29,5 +29,5 @@
   "regression_test": "jbig2_zeroclick_cve2021_30860_detections_present",
   "first_seen": "2026-02-23",
   "analysis_date": "2026-02-28",
-  "notes": "Five JBIG2 streams each with extreme full-page dimensions (2551-2569 x 3257-3297) that match CVE-2021-30860 (FORCEDENTRY) exploitation pattern. Invisible text overlays on 5 pages indicate dual use: image codec exploit delivery combined with phishing content. Top chain scores 0.9 but all JBIG2 findings remain in separate singleton chains (chain grouping gap). Scan time ~645ms at scale due to 5 JBIG2 decode attempts."
+  "notes": "Five JBIG2 streams with extreme full-page dimensions (2551-2569 x 3257-3297) match CVE-2021-30860 exploitation patterns. Post-uplift validation (2026-02-28): chain synthesis now emits `Image anomaly cluster`, `Decoder risk cluster`, and `Stream type mismatch cluster`, closing the earlier singleton-fragmentation gap. Residual gap: these clusters are not yet fused with `content_invisible_text` into one end-to-end exploit-plus-phishing narrative chain."
 }

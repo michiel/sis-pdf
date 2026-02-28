@@ -304,8 +304,7 @@ fn image_provenance_findings(ctx: &sis_pdf_core::scan::ScanContext) -> Vec<Findi
             let mut conflict_meta = HashMap::new();
             conflict_meta
                 .insert("resource.object_id".into(), format!("{} {} obj", entry.obj, entry.gen));
-            conflict_meta
-                .insert("resource.provenance".into(), entry.provenance.label());
+            conflict_meta.insert("resource.provenance".into(), entry.provenance.label());
             conflict_meta
                 .insert("resource.object_shadowed_revisions".into(), revisions.to_string());
             out.push(Finding {
@@ -624,9 +623,6 @@ mod tests {
             image_finding_summary("image.provenance_incremental_override", &meta);
         assert_eq!(severity, Severity::Medium);
         assert_eq!(confidence, Confidence::Strong);
-        assert_eq!(
-            image_finding_impact("image.provenance_incremental_override"),
-            Impact::Medium
-        );
+        assert_eq!(image_finding_impact("image.provenance_incremental_override"), Impact::Medium);
     }
 }

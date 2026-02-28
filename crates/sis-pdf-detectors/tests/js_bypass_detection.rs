@@ -61,14 +61,12 @@ fn scan(bytes: &[u8]) -> sis_pdf_core::report::Report {
 fn generator_constructor_bypass_sets_dynamic_eval_flag() {
     // The generator constructor pattern: ((function*(){}).constructor("x"))().next()
     // This is an eval bypass that should set js.dynamic_eval_construction = true
-    let bytes = build_pdf_with_js("var f = (function*(){}).constructor; f('app.alert(1)')().next();");
+    let bytes =
+        build_pdf_with_js("var f = (function*(){}).constructor; f('app.alert(1)')().next();");
     let report = scan(&bytes);
 
-    let js_finding = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "js_present")
-        .expect("js_present should fire");
+    let js_finding =
+        report.findings.iter().find(|f| f.kind == "js_present").expect("js_present should fire");
 
     assert_eq!(
         js_finding.meta.get("js.dynamic_eval_construction").map(String::as_str),
@@ -83,11 +81,8 @@ fn benign_js_does_not_set_dynamic_eval_flag() {
     let bytes = build_pdf_with_js("app.alert('hello world');");
     let report = scan(&bytes);
 
-    let js_finding = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "js_present")
-        .expect("js_present should fire");
+    let js_finding =
+        report.findings.iter().find(|f| f.kind == "js_present").expect("js_present should fire");
 
     // A simple app.alert with no dynamic eval construction should not flag
     // (note: it may still flag due to dynamic access patterns like [] but
@@ -113,10 +108,7 @@ fn global_deletion_bypass_emits_dedicated_finding() {
 
     assert_eq!(finding.severity, Severity::High);
     assert_eq!(finding.confidence, Confidence::Probable);
-    assert_eq!(
-        finding.meta.get("js.global_deletion_bypass").map(String::as_str),
-        Some("true")
-    );
+    assert_eq!(finding.meta.get("js.global_deletion_bypass").map(String::as_str), Some("true"));
 }
 
 #[test]
@@ -124,21 +116,15 @@ fn global_deletion_bypass_sets_sandbox_evasion_flag() {
     let bytes = build_pdf_with_js("delete window; delete confirm; x();");
     let report = scan(&bytes);
 
-    let js_finding = report
-        .findings
-        .iter()
-        .find(|f| f.kind == "js_present")
-        .expect("js_present should fire");
+    let js_finding =
+        report.findings.iter().find(|f| f.kind == "js_present").expect("js_present should fire");
 
     assert_eq!(
         js_finding.meta.get("js.sandbox_evasion").map(String::as_str),
         Some("true"),
         "global deletion bypass should propagate to js.sandbox_evasion"
     );
-    assert_eq!(
-        js_finding.meta.get("js.global_deletion_bypass").map(String::as_str),
-        Some("true")
-    );
+    assert_eq!(js_finding.meta.get("js.global_deletion_bypass").map(String::as_str), Some("true"));
 }
 
 #[test]
@@ -186,10 +172,7 @@ fn prototype_chain_manipulation_sets_metadata_flag() {
     let bytes = build_pdf_with_js("Object.getPrototypeOf(app).constructor = null; app.alert(1);");
     let report = scan(&bytes);
     let js = report.findings.iter().find(|f| f.kind == "js_present").expect("js_present");
-    assert_eq!(
-        js.meta.get("js.prototype_chain_manipulation").map(String::as_str),
-        Some("true")
-    );
+    assert_eq!(js.meta.get("js.prototype_chain_manipulation").map(String::as_str), Some("true"));
 }
 
 // --- EXT-07: Deleted globals list ---
@@ -217,8 +200,7 @@ fn js_present_includes_deleted_globals_metadata() {
     let bytes = build_pdf_with_js("delete window; delete confirm; x();");
     let report = scan(&bytes);
     let js = report.findings.iter().find(|f| f.kind == "js_present").expect("js_present");
-    let deleted =
-        js.meta.get("js.deleted_globals").expect("js.deleted_globals in js_present meta");
+    let deleted = js.meta.get("js.deleted_globals").expect("js.deleted_globals in js_present meta");
     assert!(deleted.contains("window"));
     assert!(deleted.contains("confirm"));
 }

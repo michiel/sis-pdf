@@ -1281,23 +1281,14 @@ fn correlate_polyglot_dropper(findings: &[Finding]) -> Vec<Finding> {
         .filter(|f| f.meta.get("nested.kind").map(|k| k == "mz").unwrap_or(false))
         .collect();
 
-    let dropper_kind: &'static str = if !pe_nested.is_empty() {
-        "polyglot_pe_dropper"
-    } else {
-        "polyglot_dropper_chain"
-    };
+    let dropper_kind: &'static str =
+        if !pe_nested.is_empty() { "polyglot_pe_dropper" } else { "polyglot_dropper_chain" };
 
     let pe_count = pe_nested.len();
-    let pe_entries: Vec<String> = pe_nested
-        .iter()
-        .filter_map(|f| f.meta.get("container.entry").cloned())
-        .collect();
-    let zip_signatures = polyglot
-        .unwrap()
-        .meta
-        .get("polyglot.signatures")
-        .cloned()
-        .unwrap_or_default();
+    let pe_entries: Vec<String> =
+        pe_nested.iter().filter_map(|f| f.meta.get("container.entry").cloned()).collect();
+    let zip_signatures =
+        polyglot.unwrap().meta.get("polyglot.signatures").cloned().unwrap_or_default();
 
     let mut sources: Vec<&Finding> = Vec::new();
     sources.extend(polyglot.iter().copied());
@@ -1368,10 +1359,8 @@ fn correlate_font_exploitation_cluster(findings: &[Finding]) -> Vec<Finding> {
         return Vec::new();
     }
 
-    let has_vuln_signals =
-        font_findings.iter().any(|f| f.kind == "font.multiple_vuln_signals");
-    let has_parse_failure =
-        font_findings.iter().any(|f| f.kind == "font.dynamic_parse_failure");
+    let has_vuln_signals = font_findings.iter().any(|f| f.kind == "font.multiple_vuln_signals");
+    let has_parse_failure = font_findings.iter().any(|f| f.kind == "font.dynamic_parse_failure");
     let hinting_count = font_findings
         .iter()
         .filter(|f| {
@@ -1400,8 +1389,7 @@ fn correlate_font_exploitation_cluster(findings: &[Finding]) -> Vec<Finding> {
     for f in &font_findings {
         *kind_counts.entry(f.kind.as_str()).or_insert(0) += 1;
     }
-    let kinds_str: Vec<String> =
-        kind_counts.iter().map(|(k, v)| format!("{}×{}", v, k)).collect();
+    let kinds_str: Vec<String> = kind_counts.iter().map(|(k, v)| format!("{}×{}", v, k)).collect();
 
     let description = format!(
         "{} suspicious font anomalies detected: {}. {}",

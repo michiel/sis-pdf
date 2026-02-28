@@ -200,7 +200,10 @@ enum Command {
         r#where: Option<String>,
         #[arg(long, help = "Path to config file")]
         config: Option<PathBuf>,
-        #[arg(long, help = "Enable deep analysis (expensive detectors: full font scan, entropy clustering, XFA script extraction)")]
+        #[arg(
+            long,
+            help = "Enable deep analysis (expensive detectors: full font scan, entropy clustering, XFA script extraction)"
+        )]
         deep: bool,
         #[arg(long, help = "Enable secondary parser (lopdf) diff for structural findings")]
         diff_parser: bool,
@@ -308,7 +311,10 @@ enum Command {
         focus_trigger: Option<String>,
         #[arg(long, default_value_t = 5)]
         focus_depth: usize,
-        #[arg(long, help = "Strict parser mode: enables strict PDF parsing and secondary parser diff; implies --diff-parser")]
+        #[arg(
+            long,
+            help = "Strict parser mode: enables strict PDF parsing and secondary parser diff; implies --diff-parser"
+        )]
         strict: bool,
         #[arg(
             long,
@@ -391,7 +397,11 @@ enum Command {
         no_font_signatures: bool,
         #[arg(long, help = "Custom directory containing font CVE signature YAML files")]
         font_signature_dir: Option<PathBuf>,
-        #[arg(long, value_name = "SECONDS", help = "Abort scan if it takes longer than this (batch mode safety net)")]
+        #[arg(
+            long,
+            value_name = "SECONDS",
+            help = "Abort scan if it takes longer than this (batch mode safety net)"
+        )]
         timeout_per_file: Option<u64>,
         #[arg(long, help = "Print only the verdict label and score")]
         verdict_only: bool,
@@ -4540,8 +4550,14 @@ fn run_scan_batch(
             .collect::<Result<Vec<_>>>()?
     };
     entries.sort_by_key(|(idx, _)| *idx);
-    let mut summary =
-        sis_pdf_core::report::Summary { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+    let mut summary = sis_pdf_core::report::Summary {
+        total: 0,
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        info: 0,
+    };
     let mut timing_total_ms = 0u64;
     let mut timing_max_ms = 0u64;
     let entries: Vec<sis_pdf_core::report::BatchEntry> = entries
@@ -5344,16 +5360,10 @@ fn run_findings_correlate(input: &std::path::Path, out: Option<&std::path::Path>
             Some(k) if !k.is_empty() => k.to_string(),
             _ => continue,
         };
-        let severity = finding
-            .get("severity")
-            .and_then(|s| s.as_str())
-            .unwrap_or("Unknown")
-            .to_string();
-        let confidence = finding
-            .get("confidence")
-            .and_then(|s| s.as_str())
-            .unwrap_or("Unknown")
-            .to_string();
+        let severity =
+            finding.get("severity").and_then(|s| s.as_str()).unwrap_or("Unknown").to_string();
+        let confidence =
+            finding.get("confidence").and_then(|s| s.as_str()).unwrap_or("Unknown").to_string();
         let entry = clusters.entry(kind).or_insert_with(|| {
             (0, std::collections::BTreeSet::new(), severity.clone(), confidence.clone())
         });

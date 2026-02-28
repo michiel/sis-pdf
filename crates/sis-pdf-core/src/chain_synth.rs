@@ -229,7 +229,12 @@ fn chain_nodes(
 
 fn trigger_from_kind(kind: &str) -> Option<String> {
     match kind {
-        "open_action_present" | "aa_present" | "aa_event_present" => Some(kind.into()),
+        "open_action_present"
+        | "aa_present"
+        | "aa_event_present"
+        | "annotation_action_chain"
+        | "action_automatic_trigger"
+        | "pdfjs_eval_path_risk" => Some(kind.into()),
         _ => None,
     }
 }
@@ -238,7 +243,11 @@ fn action_from_kind(kind: &str) -> Option<String> {
     match kind {
         "uri_listing" => Some("uri_content_analysis".into()),
         "launch_action_present"
+        | "launch_external_program"
+        | "launch_win_embedded_url"
         | "uri_content_analysis"
+        | "uri_unc_path_ntlm_risk"
+        | "uri_classification_summary"
         | "submitform_present"
         | "gotor_present"
         | "js_present"
@@ -266,6 +275,9 @@ fn payload_from_finding(f: &Finding) -> Option<String> {
     match f.kind.as_str() {
         "js_present" => Some("javascript".into()),
         "embedded_file_present" => Some("embedded_file".into()),
+        "powershell_payload_present" => Some("powershell".into()),
+        "launch_win_embedded_url" => Some("uri".into()),
+        "font.ttf_hinting_suspicious" => Some("font_hinting".into()),
         "declared_filter_invalid"
         | "decode_recovery_used"
         | "undeclared_compression_present"
@@ -324,6 +336,8 @@ fn assign_chain_roles<'a>(findings: &'a [&'a Finding]) -> ChainRoles<'a> {
 const CLUSTER_KINDS: &[&str] = &[
     "font",
     "image",
+    "annotation_action_chain",
+    "decoder_risk_present",
     "object_reference_cycle",
     "label_mismatch_stream_type",
     "declared_filter_invalid",
@@ -349,6 +363,10 @@ fn cluster_label_for_prefix(prefix: &str, count: usize) -> String {
     match prefix {
         "font" => format!("Font exploitation signals ({} fonts)", count),
         "image" => format!("Image anomaly cluster ({} images)", count),
+        "annotation_action_chain" => {
+            format!("Annotation action cluster ({} links)", count)
+        }
+        "decoder_risk_present" => format!("Decoder risk cluster ({} streams)", count),
         "object_reference_cycle" => format!("Reference cycle cluster ({} cycles)", count),
         "label_mismatch_stream_type" => {
             format!("Stream type mismatch cluster ({} streams)", count)
@@ -368,6 +386,12 @@ fn cluster_context_note(prefix: &str, count: usize) -> &'static str {
         "font" => "Multiple font anomalies may indicate exploit preparation.",
         "image" => {
             "Multiple image anomalies may indicate steganographic payload or decoder exploit."
+        }
+        "annotation_action_chain" => {
+            "High-volume annotation links indicate coordinated phishing or egress staging."
+        }
+        "decoder_risk_present" => {
+            "Repeated high-risk decoder usage suggests exploit-primitive preparation."
         }
         "object_reference_cycle" => {
             "Cycles in document graph may indicate parser confusion attempts."
@@ -408,10 +432,7 @@ fn merge_singleton_clusters(
 
     for chain in singletons {
         let fid = &chain.findings[0];
-        let kind = findings_by_id
-            .get(fid.as_str())
-            .map(|f| f.kind.as_str())
-            .unwrap_or("");
+        let kind = findings_by_id.get(fid.as_str()).map(|f| f.kind.as_str()).unwrap_or("");
         let prefix = CLUSTER_KINDS
             .iter()
             .find(|&&p| kind == p || kind.starts_with(&format!("{}.", p)))
@@ -435,15 +456,12 @@ fn merge_singleton_clusters(
             (g, remainder)
         };
 
-        let finding_ids: Vec<String> = cluster_members
-            .iter()
-            .flat_map(|c| c.findings.iter().cloned())
-            .collect();
+        let mut finding_ids: Vec<String> =
+            cluster_members.iter().flat_map(|c| c.findings.iter().cloned()).collect();
+        finding_ids.sort();
+        finding_ids.dedup();
         let count = finding_ids.len();
-        let max_score = cluster_members
-            .iter()
-            .map(|c| c.score)
-            .fold(f64::NEG_INFINITY, f64::max);
+        let max_score = cluster_members.iter().map(|c| c.score).fold(f64::NEG_INFINITY, f64::max);
         let max_severity = cluster_members
             .iter()
             .map(|c| c.severity.as_str())
@@ -463,12 +481,7 @@ fn merge_singleton_clusters(
         }
 
         let cluster_id = cluster_chain_id(&prefix, &finding_ids);
-        let narrative = format!(
-            "{} {} signals detected. {}",
-            count,
-            prefix,
-            context_note
-        );
+        let narrative = format!("{} {} signals detected. {}", count, prefix, context_note);
 
         // Aggregate finding_roles from all merged singleton chains
         let mut merged_finding_roles: HashMap<String, String> = HashMap::new();
@@ -480,18 +493,13 @@ fn merge_singleton_clusters(
 
         // Propagate the maximum stage completeness from merged singleton members so
         // the cluster chain is not incorrectly marked as 0% complete.
-        let max_completeness = cluster_members
-            .iter()
-            .map(|c| c.chain_completeness)
-            .fold(0.0_f64, f64::max);
+        let max_completeness =
+            cluster_members.iter().map(|c| c.chain_completeness).fold(0.0_f64, f64::max);
 
         // Synthesize sequential edges between consecutive finding IDs (up to 5).
         // These represent co-occurrence within the same cluster pattern.
-        let cluster_edges: Vec<String> = finding_ids
-            .windows(2)
-            .take(5)
-            .map(|w| format!("{} -> {}", w[0], w[1]))
-            .collect();
+        let cluster_edges: Vec<String> =
+            finding_ids.windows(2).take(5).map(|w| format!("{} -> {}", w[0], w[1])).collect();
 
         let cluster_chain = ExploitChain {
             id: cluster_id,
@@ -507,10 +515,7 @@ fn merge_singleton_clusters(
             score: max_score,
             reasons: vec![format!("Cluster of {} {} findings", count, prefix)],
             path: format!("Cluster: {} ({} findings)", prefix, count),
-            nodes: cluster_members
-                .iter()
-                .flat_map(|c| c.nodes.iter().cloned())
-                .collect(),
+            nodes: cluster_members.iter().flat_map(|c| c.nodes.iter().cloned()).collect(),
             edges: cluster_edges,
             confirmed_stages: Vec::new(),
             inferred_stages: Vec::new(),
@@ -624,21 +629,12 @@ fn synthesize_chain_edges(chain: &mut ExploitChain, findings_by_id: &HashMap<Str
     }
     let mut edges = Vec::new();
 
-    let trigger_id: Option<String> = chain
-        .finding_roles
-        .iter()
-        .find(|(_, r)| r.as_str() == "trigger")
-        .map(|(id, _)| id.clone());
-    let action_id: Option<String> = chain
-        .finding_roles
-        .iter()
-        .find(|(_, r)| r.as_str() == "action")
-        .map(|(id, _)| id.clone());
-    let payload_id: Option<String> = chain
-        .finding_roles
-        .iter()
-        .find(|(_, r)| r.as_str() == "payload")
-        .map(|(id, _)| id.clone());
+    let trigger_id: Option<String> =
+        chain.finding_roles.iter().find(|(_, r)| r.as_str() == "trigger").map(|(id, _)| id.clone());
+    let action_id: Option<String> =
+        chain.finding_roles.iter().find(|(_, r)| r.as_str() == "action").map(|(id, _)| id.clone());
+    let payload_id: Option<String> =
+        chain.finding_roles.iter().find(|(_, r)| r.as_str() == "payload").map(|(id, _)| id.clone());
 
     if let (Some(ref t), Some(ref a)) = (&trigger_id, &action_id) {
         edges.push(format!("{} -> {}", t, a));
@@ -877,9 +873,8 @@ fn infer_and_score_stages(chain: &mut ExploitChain, findings_by_id: &HashMap<Str
 
     // Write back sorted lists
     let mut confirmed_vec: Vec<String> = confirmed.into_iter().collect();
-    confirmed_vec.sort_by_key(|s| {
-        EXPECTED_CHAIN_STAGES.iter().position(|e| e == s).unwrap_or(usize::MAX)
-    });
+    confirmed_vec
+        .sort_by_key(|s| EXPECTED_CHAIN_STAGES.iter().position(|e| e == s).unwrap_or(usize::MAX));
     let mut inferred_vec: Vec<String> = inferred.into_iter().collect();
     inferred_vec.sort();
     chain.confirmed_stages = confirmed_vec;
@@ -1092,9 +1087,7 @@ fn notes_from_findings(
 ) -> HashMap<String, String> {
     let mut notes = HashMap::new();
     for f in findings {
-        if let Some(action_type) =
-            f.meta.get("action.s").or_else(|| f.meta.get("action.type"))
-        {
+        if let Some(action_type) = f.meta.get("action.s").or_else(|| f.meta.get("action.type")) {
             notes.entry("action.type".into()).or_insert_with(|| action_type.clone());
         } else if let Some(action_type) = &f.action_type {
             notes.entry("action.type".into()).or_insert_with(|| action_type.clone());
@@ -1299,6 +1292,9 @@ fn trigger_label(key: &str) -> String {
     match key {
         "open_action_present" => "OpenAction".into(),
         "aa_present" | "aa_event_present" => "AdditionalAction".into(),
+        "annotation_action_chain" => "Annotation action".into(),
+        "action_automatic_trigger" => "Automatic trigger".into(),
+        "pdfjs_eval_path_risk" => "PDF.js eval path".into(),
         other => other.to_string(),
     }
 }
@@ -1323,7 +1319,11 @@ fn action_label(key: &str, action_type: Option<&str>) -> String {
     }
     match key {
         "launch_action_present" => "Launch action".into(),
+        "launch_external_program" => "External launch".into(),
+        "launch_win_embedded_url" => "Launch embedded URL".into(),
         "uri_content_analysis" => "URI action".into(),
+        "uri_unc_path_ntlm_risk" => "UNC path action".into(),
+        "uri_classification_summary" => "URI summary".into(),
         "submitform_present" => "SubmitForm action".into(),
         "gotor_present" => "GoToR action".into(),
         "js_present" => "JavaScript action".into(),

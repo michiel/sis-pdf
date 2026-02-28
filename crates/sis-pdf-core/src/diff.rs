@@ -1,4 +1,6 @@
-use crate::model::{AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Impact, Severity};
+use crate::model::{
+    AttackSurface, Confidence, EvidenceSource, EvidenceSpan, Finding, Impact, Severity,
+};
 use sis_pdf_pdf::ObjectGraph;
 use std::io::Cursor;
 

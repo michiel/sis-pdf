@@ -383,7 +383,11 @@ fn show_object_meta(ui: &mut egui::Ui, app: &mut SisApp, detail: &ObjectDetail) 
         // View content operators button for page_content streams.
         if detail.has_stream && detail.roles.iter().any(|r| r == "page_content") {
             ui.label("");
-            if ui.small_button("View content operators").on_hover_text("Open content stream breakdown").clicked() {
+            if ui
+                .small_button("View content operators")
+                .on_hover_text("Open content stream breakdown")
+                .clicked()
+            {
                 crate::panels::content_stream::open_stream(app, detail.obj, detail.gen);
             }
             ui.end_row();
