@@ -36,6 +36,8 @@ pub fn correlate_findings_with_event_graph(
     composites.extend(correlate_graph_evasion_with_execute(findings));
     composites.extend(correlate_richmedia_execute_paths(findings));
     composites.extend(correlate_hidden_layer_action(findings));
+    composites.extend(correlate_polyglot_dropper(findings));
+    composites.extend(correlate_font_exploitation_cluster(findings));
     composites
 }
 
@@ -1257,6 +1259,173 @@ fn correlate_richmedia_execute_paths(findings: &[Finding]) -> Vec<Finding> {
         }
     }
     composites
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3.3: APT42 polyglot PE dropper composite
+// ---------------------------------------------------------------------------
+
+fn correlate_polyglot_dropper(findings: &[Finding]) -> Vec<Finding> {
+    let polyglot = findings.iter().find(|f| f.kind == "polyglot_signature_conflict");
+    let carved: Vec<&Finding> =
+        findings.iter().filter(|f| f.kind == "embedded_payload_carved").collect();
+    let nested: Vec<&Finding> =
+        findings.iter().filter(|f| f.kind == "nested_container_chain").collect();
+
+    if polyglot.is_none() || carved.is_empty() || nested.is_empty() {
+        return Vec::new();
+    }
+
+    let pe_nested: Vec<&&Finding> = nested
+        .iter()
+        .filter(|f| f.meta.get("nested.kind").map(|k| k == "mz").unwrap_or(false))
+        .collect();
+
+    let dropper_kind: &'static str = if !pe_nested.is_empty() {
+        "polyglot_pe_dropper"
+    } else {
+        "polyglot_dropper_chain"
+    };
+
+    let pe_count = pe_nested.len();
+    let pe_entries: Vec<String> = pe_nested
+        .iter()
+        .filter_map(|f| f.meta.get("container.entry").cloned())
+        .collect();
+    let zip_signatures = polyglot
+        .unwrap()
+        .meta
+        .get("polyglot.signatures")
+        .cloned()
+        .unwrap_or_default();
+
+    let mut sources: Vec<&Finding> = Vec::new();
+    sources.extend(polyglot.iter().copied());
+    sources.extend(carved.iter().copied());
+    sources.extend(nested.iter().copied());
+
+    let (title, description, confidence) = if !pe_nested.is_empty() {
+        (
+            "Polyglot PDF+ZIP dropping PE executables",
+            "PDF is simultaneously valid as another container format, embedding executable \
+             payloads that can be extracted and run as PE executables.",
+            Confidence::Strong,
+        )
+    } else {
+        (
+            "Polyglot container dropper chain",
+            "PDF is simultaneously valid as another container format, embedding a payload \
+             that can be extracted by a secondary parser.",
+            Confidence::Probable,
+        )
+    };
+
+    vec![build_composite(CompositeConfig {
+        kind: dropper_kind,
+        title,
+        description,
+        surface: AttackSurface::EmbeddedFiles,
+        severity: Severity::Critical,
+        confidence,
+        sources: &sources,
+        extra_meta: vec![
+            ("dropper.pe_count", Some(pe_count.to_string())),
+            (
+                "dropper.pe_entries",
+                if pe_entries.is_empty() { None } else { Some(pe_entries.join(",")) },
+            ),
+            ("dropper.zip_signatures", Some(zip_signatures)),
+            ("chain.stage", Some("decode".into())),
+            ("exploit.outcomes", Some("executable_drop; sandbox_escape".into())),
+            ("exploit.preconditions", Some("zip_extraction_tool_available".into())),
+        ],
+    })]
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3.4: Font exploitation cluster composite
+// ---------------------------------------------------------------------------
+
+const FONT_CLUSTER_THRESHOLD: usize = 5;
+
+fn correlate_font_exploitation_cluster(findings: &[Finding]) -> Vec<Finding> {
+    let font_findings: Vec<&Finding> = findings
+        .iter()
+        .filter(|f| {
+            matches!(
+                f.kind.as_str(),
+                "font.ttf_hinting_suspicious"
+                    | "font.ttf_hinting_push_loop"
+                    | "font.cmap_range_overlap"
+                    | "font.multiple_vuln_signals"
+                    | "font.dynamic_parse_failure"
+                    | "font.cmap_subtype_inconsistent"
+            )
+        })
+        .collect();
+
+    if font_findings.len() < FONT_CLUSTER_THRESHOLD {
+        return Vec::new();
+    }
+
+    let has_vuln_signals =
+        font_findings.iter().any(|f| f.kind == "font.multiple_vuln_signals");
+    let has_parse_failure =
+        font_findings.iter().any(|f| f.kind == "font.dynamic_parse_failure");
+    let hinting_count = font_findings
+        .iter()
+        .filter(|f| {
+            f.kind == "font.ttf_hinting_suspicious" || f.kind == "font.ttf_hinting_push_loop"
+        })
+        .count();
+
+    let (severity, confidence, assessment) =
+        if has_vuln_signals || (hinting_count >= 10 && has_parse_failure) {
+            (
+                Severity::High,
+                Confidence::Probable,
+                "heap spray or CVE-targeting font exploitation pattern",
+            )
+        } else if hinting_count >= 5 {
+            (
+                Severity::Medium,
+                Confidence::Probable,
+                "suspicious font hinting cluster — possible exploit preparation",
+            )
+        } else {
+            (Severity::Medium, Confidence::Tentative, "elevated font anomaly count")
+        };
+
+    let mut kind_counts: HashMap<&str, usize> = HashMap::new();
+    for f in &font_findings {
+        *kind_counts.entry(f.kind.as_str()).or_insert(0) += 1;
+    }
+    let kinds_str: Vec<String> =
+        kind_counts.iter().map(|(k, v)| format!("{}×{}", v, k)).collect();
+
+    let description = format!(
+        "{} suspicious font anomalies detected: {}. {}",
+        font_findings.len(),
+        kinds_str.join(", "),
+        assessment
+    );
+
+    vec![build_composite(CompositeConfig {
+        kind: "font_exploitation_cluster",
+        title: "Font exploitation cluster",
+        description: Box::leak(description.into_boxed_str()),
+        surface: AttackSurface::StreamsAndFilters,
+        severity,
+        confidence,
+        sources: &font_findings,
+        extra_meta: vec![
+            ("font.cluster.count", Some(font_findings.len().to_string())),
+            ("font.cluster.kinds", Some(kinds_str.join(","))),
+            ("font.cluster.assessment", Some(assessment.into())),
+            ("chain.stage", Some("render".into())),
+            ("exploit.outcomes", Some("memory_corruption; renderer_compromise".into())),
+        ],
+    })]
 }
 
 struct CompositeConfig<'a> {

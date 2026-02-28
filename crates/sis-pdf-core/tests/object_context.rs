@@ -26,6 +26,8 @@ fn finding(
 fn test_chain(id: &str, findings: &[&str], score: f64) -> ExploitChain {
     ExploitChain {
         id: id.to_string(),
+        label: String::new(),
+        severity: String::new(),
         group_id: None,
         group_count: 1,
         group_members: vec![id.to_string()],

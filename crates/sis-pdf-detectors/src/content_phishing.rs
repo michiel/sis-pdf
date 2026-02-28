@@ -11,6 +11,10 @@ use crate::{entry_dict, extract_strings_with_span, page_has_uri_annot};
 
 pub struct ContentPhishingDetector;
 const CONTENT_PHISHING_RUNTIME_HOTSPOT_MS: u128 = 1_000;
+const MAX_OBJECTS_STRING_SCAN: usize = 200;
+const MAX_OBJECTS_STREAM_DECODE: usize = 50;
+const MAX_STREAM_SCAN_BYTES: usize = 512 * 1024; // 512 KB
+const MAX_MARKER_MATCHES_PER_STREAM: usize = 10;
 
 #[derive(Default)]
 struct ContentPhishingTiming {
@@ -47,7 +51,10 @@ impl Detector for ContentPhishingDetector {
         let mut evidence = Vec::new();
         let mut timing = ContentPhishingTiming::default();
         let keyword_started = Instant::now();
-        for entry in &ctx.graph.objects {
+        for (idx, entry) in ctx.graph.objects.iter().enumerate() {
+            if idx >= MAX_OBJECTS_STRING_SCAN {
+                break;
+            }
             for (bytes, span) in extract_strings_with_span(entry) {
                 let lower = bytes.to_ascii_lowercase();
                 let mut matches = matched_keyword_labels(&lower, KEYWORDS);
@@ -246,7 +253,10 @@ fn matched_keyword_labels(haystack: &[u8], keywords: &[(&[u8], &str)]) -> Vec<St
 fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding> {
     let patterns: &[&[u8]] =
         &[b"<script", b"<iframe", b"javascript:", b"<svg", b"onerror=", b"onload="];
-    for entry in &ctx.graph.objects {
+    for (idx, entry) in ctx.graph.objects.iter().enumerate() {
+        if idx >= MAX_OBJECTS_STRING_SCAN {
+            break;
+        }
         for (bytes, span) in extract_strings_with_span(entry) {
             let lower = bytes.to_ascii_lowercase();
             if patterns.iter().any(|p| lower.windows(p.len()).any(|w| w == *p)) {
@@ -272,14 +282,25 @@ fn detect_html_payload(ctx: &sis_pdf_core::scan::ScanContext) -> Option<Finding>
             }
         }
     }
+    let mut stream_count = 0usize;
     for entry in &ctx.graph.objects {
         let PdfAtom::Stream(stream) = &entry.atom else {
             continue;
         };
+        stream_count += 1;
+        if stream_count > MAX_OBJECTS_STREAM_DECODE {
+            break;
+        }
         let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, stream) else {
             continue;
         };
-        let Some(marker) = detect_rendered_script_lure(&decoded.data) else {
+        // Truncate large decoded streams to bound analysis cost
+        let scan_data = if decoded.data.len() > MAX_STREAM_SCAN_BYTES {
+            &decoded.data[..MAX_STREAM_SCAN_BYTES]
+        } else {
+            decoded.data.as_slice()
+        };
+        let Some(marker) = detect_rendered_script_lure(scan_data) else {
             continue;
         };
         let mut meta = std::collections::HashMap::new();
@@ -319,7 +340,11 @@ fn detect_rendered_script_lure(bytes: &[u8]) -> Option<&'static str> {
         &[b"<script", b"<iframe", b"javascript:", b"<svg", b"onerror=", b"onload="];
     for marker in MARKERS {
         let mut cursor = 0usize;
+        let mut match_count = 0usize;
         while cursor < lower.len() {
+            if match_count >= MAX_MARKER_MATCHES_PER_STREAM {
+                break;
+            }
             let Some(rel) = lower[cursor..].windows(marker.len()).position(|w| w == *marker) else {
                 break;
             };
@@ -328,6 +353,7 @@ fn detect_rendered_script_lure(bytes: &[u8]) -> Option<&'static str> {
             if has_tj_nearby {
                 return std::str::from_utf8(marker).ok();
             }
+            match_count += 1;
             cursor = marker_pos.saturating_add(1);
         }
     }

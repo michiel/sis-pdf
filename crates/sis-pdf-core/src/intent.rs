@@ -1,6 +1,6 @@
 use crate::event_graph::{EventGraph, EventNodeKind, OutcomeType};
 use crate::model::{Confidence, Finding};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IntentSummary {
@@ -32,6 +32,7 @@ pub enum IntentBucket {
     Persistence,
     Obfuscation,
     ExploitPrimitive,
+    DenialOfService,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +147,27 @@ pub fn apply_intent_with_event_graph(
         }
         bucket.confidence = score_confidence(bucket.score);
     }
+    // Confidence promotion: if a bucket has score ≥ 4 AND any contributing finding
+    // has Strong/Certain confidence, promote the bucket one confidence tier.
+    let findings_by_id: HashMap<&str, &Finding> =
+        findings.iter().map(|f| (f.id.as_str(), f)).collect();
+    for bucket in buckets.values_mut() {
+        if bucket.score < 4 {
+            continue;
+        }
+        let has_strong_finding = bucket
+            .findings
+            .iter()
+            .filter_map(|fid| findings_by_id.get(fid.as_str()))
+            .any(|f| matches!(f.confidence, Confidence::Certain | Confidence::Strong));
+        if has_strong_finding {
+            bucket.confidence = match bucket.confidence {
+                Confidence::Heuristic => Confidence::Probable,
+                Confidence::Probable => Confidence::Strong,
+                other => other,
+            };
+        }
+    }
 
     let mut summary = IntentSummary { buckets: buckets.into_values().collect() };
     summary.buckets.sort_by(|a, b| b.score.cmp(&a.score));
@@ -243,8 +265,100 @@ fn signals_from_finding(f: &Finding) -> Vec<IntentSignal> {
                 fid.clone(),
             ));
         }
-        "decoder_risk_present" | "decompression_ratio_suspicious" | "huge_image_dimensions" => {
+        "decoder_risk_present" | "huge_image_dimensions" => {
             out.push(signal(IntentBucket::ExploitPrimitive, 2, "Decoder risk", fid.clone()));
+        }
+        "decompression_ratio_suspicious" => {
+            // Weight by ratio severity for DoS intent
+            let ratio: f64 = f
+                .meta
+                .get("decompression.ratio")
+                .or_else(|| f.meta.get("ratio"))
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+            let dos_weight = if ratio >= 100.0 { 4 } else if ratio >= 20.0 { 2 } else { 1 };
+            out.push(signal(
+                IntentBucket::DenialOfService,
+                dos_weight,
+                "Decompression bomb",
+                fid.clone(),
+            ));
+            out.push(signal(IntentBucket::ExploitPrimitive, 2, "Decoder risk", fid.clone()));
+        }
+        "parser_resource_exhaustion" => {
+            out.push(signal(
+                IntentBucket::DenialOfService,
+                4,
+                "Parser resource exhaustion",
+                fid.clone(),
+            ));
+        }
+        "object_reference_depth_high" => {
+            out.push(signal(
+                IntentBucket::DenialOfService,
+                2,
+                "Object graph exhaustion",
+                fid.clone(),
+            ));
+        }
+        "polyglot_signature_conflict" => {
+            out.push(signal(
+                IntentBucket::ExploitPrimitive,
+                4,
+                "Polyglot signature conflict",
+                fid.clone(),
+            ));
+        }
+        "nested_container_chain" => {
+            let nested_kind = f.meta.get("nested.kind").map(|s| s.as_str()).unwrap_or("");
+            if nested_kind == "mz" {
+                out.push(signal(
+                    IntentBucket::ExploitPrimitive,
+                    4,
+                    "Nested PE executable",
+                    fid.clone(),
+                ));
+                out.push(signal(
+                    IntentBucket::SandboxEscape,
+                    2,
+                    "PE dropper in container",
+                    fid.clone(),
+                ));
+            } else {
+                out.push(signal(
+                    IntentBucket::ExploitPrimitive,
+                    2,
+                    "Nested container",
+                    fid.clone(),
+                ));
+            }
+        }
+        "embedded_payload_carved" => {
+            let carve_kind = f.meta.get("carve.kind").map(|s| s.as_str()).unwrap_or("");
+            let weight = if carve_kind == "zip" || carve_kind == "mz" { 3 } else { 2 };
+            out.push(signal(IntentBucket::ExploitPrimitive, weight, "Carved payload", fid.clone()));
+        }
+        "font_exploitation_cluster" => {
+            out.push(signal(
+                IntentBucket::ExploitPrimitive,
+                3,
+                "Font exploitation cluster",
+                fid.clone(),
+            ));
+        }
+        "polyglot_pe_dropper" | "polyglot_dropper_chain" => {
+            out.push(signal(
+                IntentBucket::ExploitPrimitive,
+                4,
+                "Polyglot PE dropper",
+                fid.clone(),
+            ));
+            out.push(signal(
+                IntentBucket::SandboxEscape,
+                3,
+                "PE dropper chain",
+                fid.clone(),
+            ));
         }
         "parser_object_count_diff" | "parser_trailer_count_diff" => {
             out.push(signal(IntentBucket::ExploitPrimitive, 2, "Parser differential", fid.clone()));
@@ -376,6 +490,7 @@ fn bucket_name(bucket: IntentBucket) -> String {
         IntentBucket::Persistence => "persistence",
         IntentBucket::Obfuscation => "obfuscation",
         IntentBucket::ExploitPrimitive => "exploit_primitive",
+        IntentBucket::DenialOfService => "denial_of_service",
     }
     .into()
 }

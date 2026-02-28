@@ -670,3 +670,186 @@ fn corpus_captured_structural_signature_overrides_baseline_stays_stable() {
     assert_eq!(image.confidence, sis_pdf_core::model::Confidence::Strong);
     assert_eq!(image.impact, sis_pdf_core::model::Impact::High);
 }
+
+// ---------------------------------------------------------------------------
+// Stage 5+7: New corpus fixture regression tests
+// ---------------------------------------------------------------------------
+
+fn scan_corpus_fixture(name: &str) -> sis_pdf_core::report::Report {
+    let path = corpus_captured_dir().join(name);
+    let bytes = fs::read(&path).unwrap_or_else(|_| panic!("corpus fixture not found: {}", path.display()));
+    let detectors = sis_pdf_detectors::default_detectors();
+    sis_pdf_core::runner::run_scan_with_detectors(&bytes, opts(), &detectors)
+        .expect("scan should succeed")
+}
+
+fn assert_intent_bucket(report: &sis_pdf_core::report::Report, name: &str) {
+    let buckets: Vec<String> = report
+        .intent_summary
+        .as_ref()
+        .map(|s| s.buckets.iter().map(|b| format!("{:?}", b.bucket)).collect())
+        .unwrap_or_default();
+    assert!(
+        buckets.iter().any(|b| b == name),
+        "intent bucket {} not found in report; got: {:?}",
+        name,
+        buckets
+    );
+}
+
+fn intent_bucket<'a>(
+    report: &'a sis_pdf_core::report::Report,
+    name: &str,
+) -> &'a sis_pdf_core::intent::IntentBucketSummary {
+    report
+        .intent_summary
+        .as_ref()
+        .unwrap()
+        .buckets
+        .iter()
+        .find(|b| format!("{:?}", b.bucket) == name)
+        .unwrap_or_else(|| panic!("intent bucket {} not found", name))
+}
+
+fn assert_finding_kind_count(report: &sis_pdf_core::report::Report, kind: &str, expected: usize) {
+    let count = report.findings.iter().filter(|f| f.kind == kind).count();
+    assert_eq!(count, expected, "expected {} findings of kind {}, got {}", expected, kind, count);
+}
+
+fn assert_finding_kind_present(report: &sis_pdf_core::report::Report, kind: &str) {
+    assert!(
+        report.findings.iter().any(|f| f.kind == kind),
+        "finding kind {} should be present; found: {:?}",
+        kind,
+        report.findings.iter().map(|f| f.kind.as_str()).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn perf_hang_717_objects_completes_within_budget() {
+    let start = std::time::Instant::now();
+    let report = scan_corpus_fixture("perf-hang-717obj-fb87d8a7.pdf");
+    let elapsed_ms = start.elapsed().as_millis();
+
+    // Critical: was >292,000 ms before fix; must complete.
+    // Budget is 120s (generous for debug+parallel). Release builds are <10s.
+    assert!(
+        elapsed_ms < 120_000,
+        "drift_guard: 717-object PDF must scan in < 120,000 ms, took {} ms",
+        elapsed_ms
+    );
+    assert!(!report.findings.is_empty(), "drift_guard: must produce findings");
+}
+
+#[test]
+fn apt42_polyglot_core_detections_present() {
+    let report = scan_corpus_fixture("apt42-polyglot-pdf-zip-pe-6648302d.pdf");
+
+    assert_finding_kind_present(&report, "polyglot_signature_conflict");
+    assert_finding_kind_present(&report, "embedded_payload_carved");
+
+    let polyglot = finding_by_kind(&report, "polyglot_signature_conflict");
+    assert_eq!(polyglot.severity, sis_pdf_core::model::Severity::High);
+    assert_eq!(polyglot.confidence, sis_pdf_core::model::Confidence::Strong);
+
+    // After stage 3 uplift: ExploitPrimitive intent should fire
+    assert_intent_bucket(&report, "ExploitPrimitive");
+
+    // After stage 4 uplift: verdict should be present
+    let verdict = report.verdict.as_ref().expect("verdict must be present");
+    assert!(
+        verdict.label == "Malicious" || verdict.label == "Suspicious",
+        "drift_guard: apt42 verdict must be Malicious or Suspicious, got: {}",
+        verdict.label
+    );
+}
+
+#[test]
+fn booking_js_phishing_core_detections_present() {
+    let report = scan_corpus_fixture("booking-js-phishing-379b41e3.pdf");
+
+    assert_finding_kind_present(&report, "js_present");
+
+    // Verdict must be present
+    let verdict = report.verdict.as_ref().expect("verdict must be present");
+    assert!(
+        verdict.label == "Malicious" || verdict.label == "Suspicious",
+        "drift_guard: booking phishing verdict must be Suspicious or Malicious, got: {}",
+        verdict.label
+    );
+}
+
+#[test]
+fn romcom_embedded_payload_detections_present() {
+    let report = scan_corpus_fixture("romcom-embedded-payload-a99903.pdf");
+
+    assert_finding_kind_present(&report, "embedded_payload_carved");
+
+    // Verdict must be present
+    assert!(report.verdict.is_some(), "verdict must be present");
+}
+
+#[test]
+fn font_heavy_objstm_has_font_findings() {
+    let start = std::time::Instant::now();
+    let report = scan_corpus_fixture("font-heavy-objstm-5bb77b57.pdf");
+    let elapsed_ms = start.elapsed().as_millis();
+
+    // Performance guard (debug build budget)
+    assert!(
+        elapsed_ms < 60_000,
+        "drift_guard: font-heavy scan must complete in < 60s, took {}ms",
+        elapsed_ms
+    );
+
+    // Font findings must be present
+    let font_count =
+        report.findings.iter().filter(|f| f.kind.starts_with("font.")).count();
+    assert!(
+        font_count >= 1,
+        "drift_guard: font-heavy PDF must have font findings"
+    );
+
+    // Verdict must be present
+    assert!(report.verdict.is_some(), "verdict must be present");
+
+    // Chain labels should be non-empty
+    for chain in &report.chains {
+        assert!(!chain.label.is_empty(), "all chains must have non-empty labels");
+    }
+}
+
+#[test]
+fn encoded_uri_payload_has_network_intents() {
+    let report = scan_corpus_fixture("encoded-uri-payload-b710ae59.pdf");
+    // After scanning, we should have some findings
+    assert!(!report.findings.is_empty(), "encoded URI payload should have findings");
+    // Verdict must be present
+    assert!(report.verdict.is_some(), "verdict must be present");
+}
+
+#[test]
+fn all_chains_have_label_and_severity() {
+    // Test that the chain label/severity derivation works on a real fixture
+    let report = scan_corpus_fixture("booking-js-phishing-379b41e3.pdf");
+    for chain in &report.chains {
+        assert!(!chain.label.is_empty(), "chain {} must have non-empty label", chain.id);
+        assert!(!chain.severity.is_empty(), "chain {} must have non-empty severity", chain.id);
+    }
+}
+
+#[test]
+fn report_verdict_field_present_on_all_fixtures() {
+    // Verify verdict is populated for a basic fixture
+    let bytes = include_bytes!("fixtures/corpus_captured/noisy-likely-noise-693ea.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+    assert!(report.verdict.is_some(), "verdict must be present on every scan");
+    let verdict = report.verdict.unwrap();
+    assert!(
+        ["Malicious", "Suspicious", "Anomalous", "Clean"].contains(&verdict.label.as_str()),
+        "unexpected verdict label: {}",
+        verdict.label
+    );
+}

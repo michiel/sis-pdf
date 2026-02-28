@@ -9,6 +9,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::entry_dict;
 
+const MAX_CONTENT_STREAM_BYTES: usize = 2 * 1024 * 1024; // 2 MB — skip larger streams
+const MAX_CONTENT_OPS_SCAN: usize = 5_000; // hard cap on ops fed to cluster detection
+const MIN_OPS_FOR_CLUSTER: usize = 8;
+const CLUSTER_FRACTION_THRESHOLD: f64 = 0.80;
+const CLUSTER_BUCKET_SIZE: usize = 50;
+
 pub struct ContentStreamExecUpliftDetector;
 
 impl Detector for ContentStreamExecUpliftDetector {
@@ -46,6 +52,10 @@ impl Detector for ContentStreamExecUpliftDetector {
                 let Ok(decoded) = ctx.decoded.get_or_decode(ctx.bytes, &stream_ref.stream) else {
                     continue;
                 };
+                // Skip very large streams to avoid O(n²) worst case
+                if decoded.data.len() > MAX_CONTENT_STREAM_BYTES {
+                    continue;
+                }
                 let ops = parse_content_ops(&decoded.data);
                 if ops.is_empty() {
                     continue;
@@ -355,30 +365,50 @@ fn is_visible_render_op(op: &str) -> bool {
 }
 
 fn detect_resource_cluster_without_markers(ops: &[ContentOp]) -> Option<MarkedCandidate> {
-    if ops.len() < 8 {
+    // Hard cap: only examine the first MAX_CONTENT_OPS_SCAN ops to bound worst case
+    let ops = if ops.len() > MAX_CONTENT_OPS_SCAN {
+        &ops[..MAX_CONTENT_OPS_SCAN]
+    } else {
+        ops
+    };
+    if ops.len() < MIN_OPS_FOR_CLUSTER {
         return None;
     }
-    let mut window = (ops.len() / 10).max(8);
-    if window > ops.len() {
-        window = ops.len();
-    }
-    for start in 0..=ops.len().saturating_sub(window) {
-        let slice = &ops[start..start + window];
-        let resource_ops = slice.iter().filter(|op| matches!(op.op.as_str(), "Do" | "Tf")).count();
-        let visible_ops = slice.iter().filter(|op| is_visible_render_op(op.op.as_str())).count();
-        if resource_ops < 6 || visible_ops > 0 {
-            continue;
+
+    // Single-pass: walk ops in fixed-size non-overlapping buckets and compute
+    // resource/visible ratio per bucket. O(N) total — no sliding window.
+    let bucket = CLUSTER_BUCKET_SIZE.min(ops.len());
+    let mut max_resource_fraction = 0.0f64;
+    let mut best_visible = usize::MAX;
+
+    for chunk in ops.chunks(bucket) {
+        if chunk.len() < MIN_OPS_FOR_CLUSTER {
+            break;
         }
-        let fraction = resource_ops as f64 / window as f64;
-        if fraction > 0.80 {
-            return Some(MarkedCandidate {
-                tag: "/Cluster".into(),
-                resource_fraction: fraction,
-                visible_op_count: visible_ops,
-            });
+        let resource_ops = chunk
+            .iter()
+            .filter(|op| matches!(op.op.as_str(), "Do" | "Tf"))
+            .count();
+        let visible_ops = chunk
+            .iter()
+            .filter(|op| is_visible_render_op(op.op.as_str()))
+            .count();
+        let fraction = resource_ops as f64 / chunk.len() as f64;
+        if fraction > max_resource_fraction {
+            max_resource_fraction = fraction;
+            best_visible = visible_ops;
         }
     }
-    None
+
+    if max_resource_fraction > CLUSTER_FRACTION_THRESHOLD && best_visible == 0 {
+        Some(MarkedCandidate {
+            tag: "/Cluster".into(),
+            resource_fraction: max_resource_fraction,
+            visible_op_count: best_visible,
+        })
+    } else {
+        None
+    }
 }
 
 fn gstate_finding(

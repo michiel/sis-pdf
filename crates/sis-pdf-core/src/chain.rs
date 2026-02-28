@@ -4,6 +4,10 @@ use std::collections::HashMap;
 pub struct ExploitChain {
     pub id: String,
     #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub severity: String,
+    #[serde(default)]
     pub group_id: Option<String>,
     #[serde(default)]
     pub group_count: usize,

@@ -12,7 +12,9 @@ This directory contains malware-PDF fixtures extracted from corpus triage and co
 
 ## Uplift fixture families
 
-The following captured fixtures are now used as explicit validation anchors for the visualisation/chain uplift:
+### Visualisation / chain uplift (2026-02-17)
+
+The following captured fixtures are used as explicit validation anchors for the visualisation/chain uplift:
 
 - `modern-openaction-staged-38851573.pdf`
   - complex/distributed/fragmented chain baseline
@@ -23,6 +25,23 @@ The following captured fixtures are now used as explicit validation anchors for 
   - multi-reader divergence baseline
 
 Each family has drift guards in `corpus_captured_regressions.rs` (stage coverage, chain connectivity, revision metadata stability, reader-risk consistency). Corresponding `fixture_family:*` and `drift_guard:*` targets are tracked in `manifest.json`.
+
+### Performance, chain architecture, and detection uplift (2026-02-28)
+
+The following fixtures drive the uplift plan in `plans/20260228-full-uplift-implementation.md`:
+
+| File | Attack vector | Key regression targets |
+|---|---|---|
+| `apt42-polyglot-pdf-zip-pe-6648302d.pdf` | APT42: PDF+ZIP polyglot embedding two PE executables | `polyglot_signature_conflict`, `nested_container_chain` ×2, `polyglot_pe_dropper` (stage 3), `ExploitPrimitive/Probable+` (stage 3) |
+| `booking-js-phishing-379b41e3.pdf` | JS `user_interaction` + bogus netlify booking URLs | `js_present`, `annotation_action_chain`, chain dedup ≤8 chains (stage 2), verdict field (stage 4) |
+| `romcom-embedded-payload-a99903.pdf` | RomCom: embedded payload carve + external URI | `embedded_payload_carved` ×2, intent promotes above Heuristic (stage 3) |
+| `perf-hang-717obj-fb87d8a7.pdf` | 717 objects, caused 292 s hang in `content_stream_exec_uplift` | scan completes in <10 s (stage 1 fix) |
+| `font-heavy-objstm-5bb77b57.pdf` | 25+ font hinting anomalies, was 13 s scan | `font_exploitation_cluster` (stage 3), singleton rate ≤70% (stage 2), scan <5 s (stage 1+3) |
+| `encoded-uri-payload-b710ae59.pdf` | Encoded C2 URL with base64 query params | network intents, URI classification |
+
+These fixtures also guard against regression for existing fixtures:
+- `noisy-correlated-highrisk-11606.pdf` — decompression bomb (485:1 ratio), `DenialOfService` intent (stage 3)
+- `secondary-invalid-trailer-6eb8.pdf` — Fog netlify phishing, chain quality
 
 ## Integrity
 

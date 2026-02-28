@@ -12,6 +12,8 @@ use crate::model::{AttackSurface, Confidence, Finding, Impact, Severity};
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Summary {
     pub total: usize,
+    #[serde(default)]
+    pub critical: usize,
     pub high: usize,
     pub medium: usize,
     pub low: usize,
@@ -41,6 +43,23 @@ pub struct SandboxSummary {
 
 fn default_record_type() -> String {
     "report".to_string()
+}
+
+/// High-level verdict roll-up for a scan report.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VerdictSummary {
+    /// "Malicious" | "Suspicious" | "Anomalous" | "Clean"
+    pub label: String,
+    /// Confidence level from the scoring model
+    pub confidence: String,
+    /// Overall score (0.0–1.0)
+    pub score: f64,
+    /// ID of the highest-scoring chain
+    pub top_chain_id: Option<String>,
+    /// Name of the top intent bucket
+    pub top_intent: Option<String>,
+    /// Human-readable rationale
+    pub rationale: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -79,6 +98,8 @@ pub struct Report {
     pub sandbox_summary: Option<SandboxSummary>,
     #[serde(default)]
     pub detection_duration_ms: Option<u64>,
+    #[serde(default)]
+    pub verdict: Option<VerdictSummary>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -242,6 +263,7 @@ impl Report {
             temporal_snapshots: None,
             sandbox_summary: None,
             detection_duration_ms: None,
+            verdict: None,
         }
     }
 
@@ -282,6 +304,72 @@ impl Report {
     pub fn with_detection_duration(mut self, detection_duration_ms: Option<u64>) -> Self {
         self.detection_duration_ms = detection_duration_ms;
         self
+    }
+
+    pub fn with_verdict(mut self) -> Self {
+        let verdict = compute_verdict(&self);
+        self.verdict = Some(verdict);
+        self
+    }
+}
+
+/// Compute a verdict roll-up from a completed report.
+pub fn compute_verdict(report: &Report) -> VerdictSummary {
+    let top_chain = report
+        .chains
+        .iter()
+        .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal));
+    let top_chain_score = top_chain.map(|c| c.score).unwrap_or(0.0);
+    let top_chain_id = top_chain.map(|c| c.id.clone());
+
+    let top_intent = report
+        .intent_summary
+        .as_ref()
+        .and_then(|s| s.buckets.first())
+        .map(|b| format!("{:?}", b.bucket));
+
+    let has_strong_intent = report
+        .intent_summary
+        .as_ref()
+        .map(|s| {
+            s.buckets
+                .iter()
+                .any(|b| matches!(b.confidence, Confidence::Strong | Confidence::Certain))
+        })
+        .unwrap_or(false);
+
+    let (label, confidence) = if report.summary.critical > 0
+        || (top_chain_score >= 0.9 && has_strong_intent)
+    {
+        ("Malicious".into(), "Strong")
+    } else if report.summary.high > 0 || top_chain_score >= 0.75 || has_strong_intent {
+        ("Suspicious".into(), "Probable")
+    } else if report.summary.medium > 0 || top_chain_score >= 0.5 {
+        ("Anomalous".into(), "Heuristic")
+    } else {
+        ("Clean".into(), "Heuristic")
+    };
+
+    let rationale = format!(
+        "{} finding(s) ({} Critical, {} High, {} Medium). Top chain score {:.2}.{}",
+        report.summary.total,
+        report.summary.critical,
+        report.summary.high,
+        report.summary.medium,
+        top_chain_score,
+        top_intent
+            .as_deref()
+            .map(|i| format!(" Top intent: {}.", i))
+            .unwrap_or_default(),
+    );
+
+    VerdictSummary {
+        label,
+        confidence: confidence.into(),
+        score: top_chain_score,
+        top_chain_id,
+        top_intent,
+        rationale,
     }
 }
 
@@ -1952,6 +2040,8 @@ mod narrative_tests {
         notes.insert("payload.preview".into(), "PreviewText".into());
         let chain = ExploitChain {
             id: "chain-test".into(),
+            label: String::new(),
+            severity: String::new(),
             group_id: None,
             group_count: 1,
             group_members: Vec::new(),
@@ -1988,6 +2078,8 @@ mod narrative_tests {
     fn fallback_narrative_hits_default_when_notes_missing() {
         let chain = ExploitChain {
             id: "chain-fallback".into(),
+            label: String::new(),
+            severity: String::new(),
             group_id: None,
             group_count: 1,
             group_members: Vec::new(),
@@ -2950,7 +3042,7 @@ pub fn render_markdown(report: &Report, input_path: Option<&str>) -> String {
     } else {
         out.push_str(&format!("- Findings: {}\n", js_findings.len()));
         let severity_summary = js_findings.iter().fold(
-            Summary { total: 0, high: 0, medium: 0, low: 0, info: 0 },
+            Summary { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 },
             |mut acc, f| {
                 acc.total += 1;
                 match f.severity {
@@ -3965,11 +4057,11 @@ mod tests {
         buckets.insert("missing_constructor".to_string(), 3);
         buckets.insert("missing_callable".to_string(), 1);
         let report = BatchReport {
-            summary: Summary { total: 2, high: 0, medium: 0, low: 1, info: 1 },
+            summary: Summary { total: 2, critical: 0, high: 0, medium: 0, low: 1, info: 1 },
             entries: vec![BatchEntry {
                 record_type: "entry".to_string(),
                 path: "sample.pdf".into(),
-                summary: Summary { total: 2, high: 0, medium: 0, low: 1, info: 1 },
+                summary: Summary { total: 2, critical: 0, high: 0, medium: 0, low: 1, info: 1 },
                 duration_ms: 10,
                 detection_duration_ms: Some(5),
                 js_emulation_breakpoint_buckets: buckets,
@@ -4186,10 +4278,11 @@ mod tests {
 }
 
 fn summary_from_findings(findings: &[Finding]) -> Summary {
-    let mut summary = Summary { total: findings.len(), high: 0, medium: 0, low: 0, info: 0 };
+    let mut summary = Summary { total: findings.len(), critical: 0, high: 0, medium: 0, low: 0, info: 0 };
     for f in findings {
         match f.severity {
-            Severity::High | Severity::Critical => summary.high += 1,
+            Severity::Critical => { summary.critical += 1; summary.high += 1; }
+            Severity::High => summary.high += 1,
             Severity::Medium => summary.medium += 1,
             Severity::Low => summary.low += 1,
             Severity::Info => summary.info += 1,

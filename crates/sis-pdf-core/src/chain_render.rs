@@ -175,6 +175,8 @@ mod tests {
     fn base_chain() -> ExploitChain {
         ExploitChain {
             id: "chain-1".into(),
+            label: String::new(),
+            severity: String::new(),
             group_id: None,
             group_count: 1,
             group_members: Vec::new(),

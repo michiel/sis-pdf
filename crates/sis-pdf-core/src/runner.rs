@@ -831,6 +831,7 @@ pub fn run_scan_with_detectors(
         structural_summary,
         ml_summary_override,
     )
+    .with_verdict()
     .with_detection_duration(Some(detection_duration_ms)))
 }
 

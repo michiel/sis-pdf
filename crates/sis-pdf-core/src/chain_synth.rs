@@ -54,6 +54,8 @@ pub fn synthesise_chains(
         apply_chain_labels(&mut notes, trigger.as_deref(), action.as_deref(), payload.as_deref());
         let mut chain = ExploitChain {
             id: String::new(),
+            label: String::new(),
+            severity: String::new(),
             group_id: None,
             group_count: 1,
             group_members: Vec::new(),
@@ -83,6 +85,12 @@ pub fn synthesise_chains(
         chains.push(chain);
     }
 
+    let chains = merge_singleton_clusters(chains, &findings_by_id);
+    // Note: deduplicate_chains is intentionally not called here.
+    // The singleton deduplication breaks ObjectChainRole::Payload memberships
+    // because the upsert model keeps only the highest role per (object, chain) pair.
+    // Singletons provide separate role memberships for multi-role objects.
+    // The cluster merging above already reduces the singleton rate significantly.
     let chains = if group_chains {
         group_chains_by_signature(chains, &findings_by_id)
     } else {
@@ -163,6 +171,8 @@ fn build_object_chains(
         apply_chain_labels(&mut notes, trigger.as_deref(), action.as_deref(), payload.as_deref());
         let mut chain = ExploitChain {
             id: String::new(),
+            label: String::new(),
+            severity: String::new(),
             group_id: None,
             group_count: 1,
             group_members: Vec::new(),
@@ -308,6 +318,233 @@ fn assign_chain_roles<'a>(findings: &'a [&'a Finding]) -> ChainRoles<'a> {
     roles
 }
 
+// ---------------------------------------------------------------------------
+// Stage 2.2: Kind-based singleton cluster merging
+// ---------------------------------------------------------------------------
+
+const CLUSTER_KINDS: &[&str] = &[
+    "font",
+    "image",
+    "object_reference_cycle",
+    "label_mismatch_stream_type",
+    "declared_filter_invalid",
+    "objstm",
+    "secondary_parser",
+    "parser",
+];
+const MAX_CLUSTER_MEMBERS: usize = 50;
+
+fn severity_rank(s: &str) -> u8 {
+    match s {
+        "Critical" => 4,
+        "High" => 3,
+        "Medium" => 2,
+        "Low" => 1,
+        _ => 0,
+    }
+}
+
+fn cluster_label_for_prefix(prefix: &str, count: usize) -> String {
+    match prefix {
+        "font" => format!("Font exploitation signals ({} fonts)", count),
+        "image" => format!("Image anomaly cluster ({} images)", count),
+        "object_reference_cycle" => format!("Reference cycle cluster ({} cycles)", count),
+        "label_mismatch_stream_type" => {
+            format!("Stream type mismatch cluster ({} streams)", count)
+        }
+        "declared_filter_invalid" => format!("Invalid filter cluster ({} streams)", count),
+        _ => format!("{} cluster ({} findings)", prefix, count),
+    }
+}
+
+fn cluster_context_note(prefix: &str, count: usize) -> &'static str {
+    match prefix {
+        "font" if count >= 10 => {
+            "Pattern consistent with heap spray or font-based exploit targeting."
+        }
+        "font" => "Multiple font anomalies may indicate exploit preparation.",
+        "image" => {
+            "Multiple image anomalies may indicate steganographic payload or decoder exploit."
+        }
+        "object_reference_cycle" => {
+            "Cycles in document graph may indicate parser confusion attempts."
+        }
+        "declared_filter_invalid" => {
+            "Invalid filter chains may indicate obfuscation or malformed payload delivery."
+        }
+        _ => "",
+    }
+}
+
+fn cluster_chain_id(prefix: &str, finding_ids: &[String]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(prefix.as_bytes());
+    for fid in finding_ids {
+        hasher.update(fid.as_bytes());
+    }
+    format!("cluster-{}-{}", prefix, &hasher.finalize().to_hex()[..12])
+}
+
+/// Merge singleton chains whose findings share the same kind-prefix into cluster chains.
+/// Example: 25 singleton font.ttf_hinting_suspicious chains → 1 cluster chain.
+fn merge_singleton_clusters(
+    mut chains: Vec<ExploitChain>,
+    findings_by_id: &HashMap<String, &Finding>,
+) -> Vec<ExploitChain> {
+    let (singletons, mut multi): (Vec<_>, Vec<_>) =
+        chains.drain(..).partition(|c| c.findings.len() == 1);
+
+    let mut kind_groups: HashMap<String, Vec<ExploitChain>> = HashMap::new();
+    let mut unmatched: Vec<ExploitChain> = Vec::new();
+
+    for chain in singletons {
+        let fid = &chain.findings[0];
+        let kind = findings_by_id
+            .get(fid.as_str())
+            .map(|f| f.kind.as_str())
+            .unwrap_or("");
+        let prefix = CLUSTER_KINDS
+            .iter()
+            .find(|&&p| kind == p || kind.starts_with(&format!("{}.", p)))
+            .copied();
+        match prefix {
+            Some(p) => kind_groups.entry(p.to_string()).or_default().push(chain),
+            None => unmatched.push(chain),
+        }
+    }
+
+    for (prefix, group) in kind_groups {
+        if group.len() < 2 {
+            unmatched.extend(group);
+            continue;
+        }
+        let (cluster_members, remainder) = if group.len() <= MAX_CLUSTER_MEMBERS {
+            (group, vec![])
+        } else {
+            let mut g = group;
+            let remainder = g.split_off(MAX_CLUSTER_MEMBERS);
+            (g, remainder)
+        };
+
+        let finding_ids: Vec<String> = cluster_members
+            .iter()
+            .flat_map(|c| c.findings.iter().cloned())
+            .collect();
+        let count = finding_ids.len();
+        let max_score = cluster_members
+            .iter()
+            .map(|c| c.score)
+            .fold(f64::NEG_INFINITY, f64::max);
+        let max_severity = cluster_members
+            .iter()
+            .map(|c| c.severity.as_str())
+            .max_by_key(|&s| severity_rank(s))
+            .unwrap_or("Low")
+            .to_string();
+
+        let cluster_label = cluster_label_for_prefix(&prefix, count);
+        let context_note = cluster_context_note(&prefix, count);
+
+        let mut notes = HashMap::new();
+        notes.insert("cluster.kind_prefix".into(), prefix.clone());
+        notes.insert("cluster.member_count".into(), count.to_string());
+        notes.insert("cluster.label".into(), cluster_label.clone());
+        if !context_note.is_empty() {
+            notes.insert("cluster.context".into(), context_note.into());
+        }
+
+        let cluster_id = cluster_chain_id(&prefix, &finding_ids);
+        let narrative = format!(
+            "{} {} signals detected. {}",
+            count,
+            prefix,
+            context_note
+        );
+
+        // Aggregate finding_roles from all merged singleton chains
+        let mut merged_finding_roles: HashMap<String, String> = HashMap::new();
+        for member in &cluster_members {
+            for (fid, role) in &member.finding_roles {
+                merged_finding_roles.entry(fid.clone()).or_insert_with(|| role.clone());
+            }
+        }
+
+        let cluster_chain = ExploitChain {
+            id: cluster_id,
+            label: cluster_label.clone(),
+            severity: max_severity,
+            group_id: None,
+            group_count: 1,
+            group_members: Vec::new(),
+            trigger: cluster_members[0].trigger.clone(),
+            action: cluster_members[0].action.clone(),
+            payload: cluster_members[0].payload.clone(),
+            findings: finding_ids,
+            score: max_score,
+            reasons: vec![format!("Cluster of {} {} findings", count, prefix)],
+            path: format!("Cluster: {} ({} findings)", prefix, count),
+            nodes: cluster_members
+                .iter()
+                .flat_map(|c| c.nodes.iter().cloned())
+                .collect(),
+            edges: Vec::new(),
+            confirmed_stages: Vec::new(),
+            inferred_stages: Vec::new(),
+            chain_completeness: 0.0,
+            reader_risk: HashMap::new(),
+            narrative,
+            finding_criticality: HashMap::new(),
+            active_mitigations: Vec::new(),
+            required_conditions: Vec::new(),
+            unmet_conditions: Vec::new(),
+            finding_roles: merged_finding_roles,
+            notes,
+        };
+        multi.push(cluster_chain);
+        unmatched.extend(remainder);
+    }
+
+    multi.extend(unmatched);
+    multi
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2.3: Finding deduplication across chains
+// ---------------------------------------------------------------------------
+
+/// Remove singleton chains whose sole finding is already claimed by a multi-finding chain.
+/// Only singleton chains (1 finding) are removed — multi-finding object chains always survive
+/// to preserve role and completeness context for their objects.
+fn deduplicate_chains(mut chains: Vec<ExploitChain>) -> Vec<ExploitChain> {
+    // Sort: highest finding count first, then highest score
+    chains.sort_by(|a, b| {
+        b.findings
+            .len()
+            .cmp(&a.findings.len())
+            .then(b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    // Collect all finding IDs claimed by multi-finding chains (len > 1)
+    let mut claimed: HashSet<String> = HashSet::new();
+    for chain in chains.iter().filter(|c| c.findings.len() > 1) {
+        for fid in &chain.findings {
+            claimed.insert(fid.clone());
+        }
+    }
+
+    // Remove singleton chains whose finding is already claimed
+    chains
+        .into_iter()
+        .filter(|chain| {
+            if chain.findings.len() != 1 {
+                return true; // keep all multi-finding chains
+            }
+            let fid = &chain.findings[0];
+            !claimed.contains(fid.as_str())
+        })
+        .collect()
+}
+
 fn chain_id(chain: &ExploitChain) -> String {
     let mut hasher = blake3::Hasher::new();
     if let Some(t) = &chain.trigger {
@@ -344,6 +581,87 @@ fn finalize_chain(
     populate_chain_enrichment(chain, findings_by_id);
     annotate_low_completeness(chain);
     chain.id = chain_id(chain);
+    chain.label = derive_chain_label(chain, findings_by_id);
+    chain.severity = derive_chain_severity(chain.score, findings_by_id, &chain.findings);
+}
+
+fn derive_chain_label(chain: &ExploitChain, findings_by_id: &HashMap<String, &Finding>) -> String {
+    // Priority 1: cluster label from merge pass
+    if let Some(lbl) = chain.notes.get("cluster.label") {
+        return lbl.clone();
+    }
+    // Priority 2: action + payload label from notes
+    let action_label = chain.notes.get("action.label").map(|s| s.as_str()).unwrap_or("");
+    let payload_label = chain.notes.get("payload.label").map(|s| s.as_str()).unwrap_or("");
+    if !action_label.is_empty() && !payload_label.is_empty() {
+        return format!("{} \u{2192} {}", action_label, payload_label);
+    }
+    if !action_label.is_empty() {
+        if let Some(trigger) = &chain.trigger {
+            return format!("{}:{}", trigger, action_label);
+        }
+        return action_label.to_string();
+    }
+    // Priority 3: first finding kind
+    chain
+        .findings
+        .first()
+        .and_then(|fid| findings_by_id.get(fid.as_str()))
+        .map(|f| f.kind.clone())
+        .unwrap_or_else(|| "unknown".into())
+}
+
+fn derive_chain_severity(
+    score: f64,
+    findings_by_id: &HashMap<String, &Finding>,
+    finding_ids: &[String],
+) -> String {
+    // Base severity from score threshold
+    let score_severity = if score >= 0.9 {
+        "Critical"
+    } else if score >= 0.75 {
+        "High"
+    } else if score >= 0.5 {
+        "Medium"
+    } else {
+        "Low"
+    };
+    // Escalate to highest finding severity if it exceeds score-derived severity
+    use crate::model::Severity;
+    fn sev_rank(s: &Severity) -> u8 {
+        match s {
+            Severity::Critical => 4,
+            Severity::High => 3,
+            Severity::Medium => 2,
+            Severity::Low => 1,
+            Severity::Info => 0,
+        }
+    }
+    fn score_rank(s: &str) -> u8 {
+        match s {
+            "Critical" => 4,
+            "High" => 3,
+            "Medium" => 2,
+            _ => 1,
+        }
+    }
+    let max_finding_sev = finding_ids
+        .iter()
+        .filter_map(|fid| findings_by_id.get(fid.as_str()))
+        .map(|f| &f.severity)
+        .max_by_key(|s| sev_rank(s));
+    let max_rank = max_finding_sev.map(sev_rank).unwrap_or(0);
+    if max_rank > score_rank(score_severity) {
+        match max_rank {
+            4 => "Critical",
+            3 => "High",
+            2 => "Medium",
+            _ => "Low",
+        }
+        .to_string()
+    } else {
+        score_severity.to_string()
+    }
 }
 
 /// Annotate chains where completeness is below threshold relative to score.
@@ -539,6 +857,8 @@ fn compute_finding_criticality(
         apply_chain_labels(&mut notes, trigger.as_deref(), action.as_deref(), payload.as_deref());
         let candidate = ExploitChain {
             id: String::new(),
+            label: String::new(),
+            severity: String::new(),
             group_id: None,
             group_count: 1,
             group_members: Vec::new(),

@@ -32,7 +32,7 @@ const MAX_PDF_BYTES: u64 = 500 * 1024 * 1024;
 const MAX_BATCH_FILES: usize = 500_000;
 const MAX_BATCH_BYTES: u64 = 50 * 1024 * 1024 * 1024;
 const MAX_JSONL_BYTES: u64 = 100 * 1024 * 1024;
-const MAX_JSONL_LINE_BYTES: usize = 10 * 1024;
+const MAX_JSONL_LINE_BYTES: usize = 1024 * 1024; // 1 MB — supports rich findings
 const MAX_JSONL_ENTRIES: usize = 1_000_000;
 const MAX_CAMPAIGN_INTENT_LEN: usize = 1024;
 const MAX_WALK_DEPTH: usize = 10;
@@ -4510,7 +4510,7 @@ fn run_scan_batch(
     };
     entries.sort_by_key(|(idx, _)| *idx);
     let mut summary =
-        sis_pdf_core::report::Summary { total: 0, high: 0, medium: 0, low: 0, info: 0 };
+        sis_pdf_core::report::Summary { total: 0, critical: 0, high: 0, medium: 0, low: 0, info: 0 };
     let mut timing_total_ms = 0u64;
     let mut timing_max_ms = 0u64;
     let entries: Vec<sis_pdf_core::report::BatchEntry> = entries
@@ -5155,31 +5155,13 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
     let mut by_path: std::collections::HashMap<String, sis_pdf_core::campaign::PDFAnalysis> =
         std::collections::HashMap::new();
     let mut entries = 0usize;
-    for (idx, line) in data.lines().enumerate() {
+    let mut skipped_lines = 0usize;
+    for (_idx, line) in data.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
         }
         if line.len() > MAX_JSONL_LINE_BYTES {
-            SecurityEvent {
-                level: Level::WARN,
-                domain: SecurityDomain::Parser,
-                severity: SecuritySeverity::Low,
-                kind: "jsonl_line_too_large",
-                policy: None,
-                object_id: None,
-                object_type: None,
-                vector: None,
-                technique: None,
-                confidence: None,
-                fatal: false,
-                message: "JSONL line exceeds size limit",
-            }
-            .emit();
-            warn!(
-                line = idx + 1,
-                max_bytes = MAX_JSONL_LINE_BYTES,
-                "JSONL line exceeds size limit"
-            );
+            skipped_lines += 1;
             continue;
         }
         entries += 1;
@@ -5220,7 +5202,7 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
                     message: "JSONL parse error",
                 }
                 .emit();
-                warn!(line = idx + 1, error = %err, "JSONL parse error");
+                warn!(error = %err, "JSONL parse error");
                 continue;
             }
         };
@@ -5263,6 +5245,13 @@ fn run_campaign_correlate(input: &std::path::Path, out: Option<&std::path::Path>
         entry
             .network_intents
             .push(sis_pdf_core::campaign::NetworkIntent { url: url.to_string(), domain });
+    }
+    if skipped_lines > 0 {
+        warn!(
+            skipped = skipped_lines,
+            max_line_bytes = MAX_JSONL_LINE_BYTES,
+            "some JSONL lines exceeded max-line-bytes and were skipped"
+        );
     }
     let analyses: Vec<sis_pdf_core::campaign::PDFAnalysis> = by_path.into_values().collect();
     let correlator = sis_pdf_core::campaign::MultiStageCorrelator;

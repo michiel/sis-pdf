@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-02-17",
+  "captured_at": "2026-02-28",
   "source_root": "tmp/corpus",
   "fixtures": [
     {
@@ -187,6 +187,79 @@
         "font.override_outside_signature_scope high/strong",
         "image.override_outside_signature_scope high/strong",
         "signature boundary metadata invariant"
+      ]
+    },
+    {
+      "path": "apt42-polyglot-pdf-zip-pe-6648302d.pdf",
+      "sha256": "6648302d497ee2364d3b10d0bebd1c30cedf649117a682754aebd35761a5d2ff",
+      "source_path": "tmp/corpus/mwb-latest/6648302d497ee2364d3b10d0bebd1c30cedf649117a682754aebd35761a5d2ff.pdf",
+      "regression_targets": [
+        "polyglot_signature_conflict high/strong with ZIP signatures",
+        "embedded_payload_carved medium/strong zip in stream",
+        "nested_container_chain high/probable x2 (PE entries)",
+        "drift_guard polyglot_pe_count=2",
+        "drift_guard pe_entry msvcp140.dll present",
+        "intent ExploitPrimitive probable+ after stage 3 uplift",
+        "polyglot_pe_dropper critical/strong composite after stage 3 uplift"
+      ]
+    },
+    {
+      "path": "booking-js-phishing-379b41e3.pdf",
+      "sha256": "379b41e3fd94f48d3f1756202fc4e702a98af4f01ca59b1be30cb3e31bc4b3ce",
+      "source_path": "tmp/corpus/mwb-latest/379b41e3fd94f48d3f1756202fc4e702a98af4f01ca59b1be30cb3e31bc4b3ce.pdf",
+      "regression_targets": [
+        "js_present medium/strong",
+        "annotation_action_chain low/strong with netlify URL",
+        "js_intent_user_interaction high/strong",
+        "network_intents contains bocking.netlify.app",
+        "drift_guard chain_count<=8 after stage 2 uplift",
+        "drift_guard no_finding_in_multiple_chains after stage 2 uplift",
+        "verdict Suspicious or Malicious after stage 4 uplift"
+      ]
+    },
+    {
+      "path": "romcom-embedded-payload-a99903.pdf",
+      "sha256": "a99903938bf242ea6465865117561ba950bd12a82f41b8eeae108f4f3d74b5d1",
+      "source_path": "tmp/corpus/mwb-latest/a99903938bf242ea6465865117561ba950bd12a82f41b8eeae108f4f3d74b5d1.pdf",
+      "regression_targets": [
+        "embedded_payload_carved present x2",
+        "intent ExploitPrimitive score>=4",
+        "drift_guard intent_confidence_promotes_above_heuristic after stage 3 uplift",
+        "network_intents present"
+      ]
+    },
+    {
+      "path": "perf-hang-717obj-fb87d8a7.pdf",
+      "sha256": "fb87d8a7807626279bae04d56ba01ce1401917f6b0e7a74a335208a940221ddd",
+      "source_path": "tmp/corpus/mwb-2026-02-23/fb87d8a7807626279bae04d56ba01ce1401917f6b0e7a74a335208a940221ddd.pdf",
+      "regression_targets": [
+        "scan completes in <10000ms (was 292000ms before stage 1 fix)",
+        "findings present (scan not silently skipped)",
+        "drift_guard no_content_stream_exec_uplift_timeout"
+      ]
+    },
+    {
+      "path": "font-heavy-objstm-5bb77b57.pdf",
+      "sha256": "5bb77b5790891f42208d9224a231059ed8e16b7174228caa9dc201329288a741",
+      "source_path": "tmp/corpus/mwb-2026-02-23/5bb77b5790891f42208d9224a231059ed8e16b7174228caa9dc201329288a741.pdf",
+      "regression_targets": [
+        "content_first_stage1 completes in <5000ms",
+        "font.ttf_hinting_suspicious present",
+        "font_exploitation_cluster high/probable after stage 3 uplift",
+        "drift_guard cluster_member_count>=25",
+        "drift_guard singleton_chain_rate<=70pct after stage 2 uplift",
+        "drift_guard render_stage_confirmed after stage 2 uplift"
+      ]
+    },
+    {
+      "path": "encoded-uri-payload-b710ae59.pdf",
+      "sha256": "b710ae59bc996a099ca491f6d32fef2d8d5fa25f266d590e4a7a13f81ab2b432",
+      "source_path": "tmp/corpus/mwb-latest/b710ae59bc996a099ca491f6d32fef2d8d5fa25f266d590e4a7a13f81ab2b432.pdf",
+      "regression_targets": [
+        "network_intents contains evacdir.com",
+        "uri.url present in finding meta",
+        "intent DataExfiltration or Phishing present",
+        "annotation_action_chain or passive_external_resource_fetch present"
       ]
     }
   ]
