@@ -155,7 +155,10 @@ fn build_object_chains(
         let payload = roles.payload_key.clone();
         let categories =
             [trigger.is_some(), action.is_some(), payload.is_some()].iter().filter(|v| **v).count();
-        if categories < 2 {
+        // Require either 2+ role categories (trigger/action/payload) OR 3+ co-located findings.
+        // The 3+ co-located case covers structural/payload threats (e.g. polyglot PE droppers)
+        // where all signals are on the same object but none qualify as explicit action triggers.
+        if categories < 2 && group.len() < 3 {
             continue;
         }
         let mut notes = notes_from_findings(&group, structural_count, taint);
@@ -327,6 +330,8 @@ const CLUSTER_KINDS: &[&str] = &[
     "objstm",
     "secondary_parser",
     "parser",
+    "embedded_payload_carved",
+    "uri_content_analysis",
 ];
 const MAX_CLUSTER_MEMBERS: usize = 50;
 
@@ -349,6 +354,8 @@ fn cluster_label_for_prefix(prefix: &str, count: usize) -> String {
             format!("Stream type mismatch cluster ({} streams)", count)
         }
         "declared_filter_invalid" => format!("Invalid filter cluster ({} streams)", count),
+        "embedded_payload_carved" => format!("Embedded payload cluster ({} payloads)", count),
+        "uri_content_analysis" => format!("URI analysis cluster ({} URIs)", count),
         _ => format!("{} cluster ({} findings)", prefix, count),
     }
 }
@@ -367,6 +374,12 @@ fn cluster_context_note(prefix: &str, count: usize) -> &'static str {
         }
         "declared_filter_invalid" => {
             "Invalid filter chains may indicate obfuscation or malformed payload delivery."
+        }
+        "embedded_payload_carved" => {
+            "Multiple carved payloads may indicate polyglot content or multi-stage delivery."
+        }
+        "uri_content_analysis" => {
+            "Multiple URI findings may indicate network egress or phishing redirection chain."
         }
         _ => "",
     }
@@ -465,6 +478,21 @@ fn merge_singleton_clusters(
             }
         }
 
+        // Propagate the maximum stage completeness from merged singleton members so
+        // the cluster chain is not incorrectly marked as 0% complete.
+        let max_completeness = cluster_members
+            .iter()
+            .map(|c| c.chain_completeness)
+            .fold(0.0_f64, f64::max);
+
+        // Synthesize sequential edges between consecutive finding IDs (up to 5).
+        // These represent co-occurrence within the same cluster pattern.
+        let cluster_edges: Vec<String> = finding_ids
+            .windows(2)
+            .take(5)
+            .map(|w| format!("{} -> {}", w[0], w[1]))
+            .collect();
+
         let cluster_chain = ExploitChain {
             id: cluster_id,
             label: cluster_label.clone(),
@@ -483,10 +511,10 @@ fn merge_singleton_clusters(
                 .iter()
                 .flat_map(|c| c.nodes.iter().cloned())
                 .collect(),
-            edges: Vec::new(),
+            edges: cluster_edges,
             confirmed_stages: Vec::new(),
             inferred_stages: Vec::new(),
-            chain_completeness: 0.0,
+            chain_completeness: max_completeness,
             reader_risk: HashMap::new(),
             narrative,
             finding_criticality: HashMap::new(),
@@ -583,6 +611,72 @@ fn template_id(key: &str) -> String {
     format!("template-{}", hasher.finalize().to_hex())
 }
 
+/// Synthesize directed edges for a chain based on finding roles and shared objects.
+///
+/// For chains with trigger/action/payload roles, edges follow the execution order:
+///   trigger → action → payload
+///
+/// As a fallback (no role-based edges), edges are added between findings that share
+/// at least one object reference (up to 5 pairs, checked over first 10 findings).
+fn synthesize_chain_edges(chain: &mut ExploitChain, findings_by_id: &HashMap<String, &Finding>) {
+    if chain.findings.len() < 2 {
+        return;
+    }
+    let mut edges = Vec::new();
+
+    let trigger_id: Option<String> = chain
+        .finding_roles
+        .iter()
+        .find(|(_, r)| r.as_str() == "trigger")
+        .map(|(id, _)| id.clone());
+    let action_id: Option<String> = chain
+        .finding_roles
+        .iter()
+        .find(|(_, r)| r.as_str() == "action")
+        .map(|(id, _)| id.clone());
+    let payload_id: Option<String> = chain
+        .finding_roles
+        .iter()
+        .find(|(_, r)| r.as_str() == "payload")
+        .map(|(id, _)| id.clone());
+
+    if let (Some(ref t), Some(ref a)) = (&trigger_id, &action_id) {
+        edges.push(format!("{} -> {}", t, a));
+    }
+    if let (Some(ref a), Some(ref p)) = (&action_id, &payload_id) {
+        edges.push(format!("{} -> {}", a, p));
+    }
+    if trigger_id.is_some() && action_id.is_none() {
+        if let (Some(ref t), Some(ref p)) = (&trigger_id, &payload_id) {
+            edges.push(format!("{} -> {}", t, p));
+        }
+    }
+
+    // Fallback: object-shared edges when no role-based edges could be synthesized.
+    if edges.is_empty() {
+        let findings: Vec<_> = chain
+            .findings
+            .iter()
+            .filter_map(|id| findings_by_id.get(id.as_str()).map(|f| (id, f)))
+            .take(10)
+            .collect();
+        'outer: for i in 0..findings.len() {
+            for j in (i + 1)..findings.len() {
+                let (id_i, f_i) = findings[i];
+                let (id_j, f_j) = findings[j];
+                if f_i.objects.iter().any(|o| f_j.objects.contains(o)) {
+                    edges.push(format!("{} -> {}", id_i, id_j));
+                    if edges.len() >= 5 {
+                        break 'outer;
+                    }
+                }
+            }
+        }
+    }
+
+    chain.edges = edges;
+}
+
 fn finalize_chain(
     chain: &mut ExploitChain,
     finding_positions: &HashMap<String, Vec<String>>,
@@ -594,6 +688,7 @@ fn finalize_chain(
     chain.score = score;
     chain.reasons = reasons;
     populate_chain_enrichment(chain, findings_by_id);
+    synthesize_chain_edges(chain, findings_by_id);
     annotate_low_completeness(chain);
     chain.id = chain_id(chain);
     chain.label = derive_chain_label(chain, findings_by_id);

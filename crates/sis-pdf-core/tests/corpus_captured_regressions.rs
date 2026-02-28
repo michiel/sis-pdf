@@ -323,12 +323,20 @@ fn corpus_captured_modern_renderer_revision_baseline_stays_stable() {
         object_context.chains.len() >= 3,
         "expected revision-shadow object 14 0 to remain connected across multiple chain memberships"
     );
+    // Object 14 0 should have at least one substantive chain role (Action, Payload, Trigger,
+    // or Participant — not just a path node). Chain-building improvements may upgrade
+    // Participant to Action when the finding is recognized as an action in a multi-finding chain.
     assert!(
-        object_context
-            .chains
-            .iter()
-            .any(|membership| membership.role == ObjectChainRole::Participant),
-        "expected revision-shadow object 14 0 to be represented as a chain participant"
+        object_context.chains.iter().any(|membership| {
+            matches!(
+                membership.role,
+                ObjectChainRole::Trigger
+                    | ObjectChainRole::Action
+                    | ObjectChainRole::Payload
+                    | ObjectChainRole::Participant
+            )
+        }),
+        "expected revision-shadow object 14 0 to have a substantive chain role (not just PathNode)"
     );
     assert_eq!(
         object_context.max_severity,
@@ -762,6 +770,17 @@ fn apt42_polyglot_core_detections_present() {
         "drift_guard: apt42 verdict must be Malicious or Suspicious, got: {}",
         verdict.label
     );
+
+    // Chain singleton reduction: at least one multi-finding chain must exist
+    assert!(
+        report.chains.iter().any(|c| c.findings.len() > 1),
+        "apt42 must have at least one multi-finding chain (embedded_payload_carved cluster)"
+    );
+    // At least one chain must have completeness > 0.0 and non-empty edges
+    assert!(
+        report.chains.iter().any(|c| c.chain_completeness > 0.0 && !c.edges.is_empty()),
+        "apt42 must have at least one chain with chain_completeness > 0.0 and edges"
+    );
 }
 
 #[test]
@@ -776,6 +795,12 @@ fn booking_js_phishing_core_detections_present() {
         verdict.label == "Malicious" || verdict.label == "Suspicious",
         "drift_guard: booking phishing verdict must be Suspicious or Malicious, got: {}",
         verdict.label
+    );
+
+    // At least one chain must have completeness > 0.0 and non-empty edges (the JS action chain)
+    assert!(
+        report.chains.iter().any(|c| c.chain_completeness > 0.0 && !c.edges.is_empty()),
+        "booking phishing must have at least one chain with chain_completeness > 0.0 and edges"
     );
 }
 
