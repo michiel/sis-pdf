@@ -31,6 +31,7 @@ pub mod content_first;
 pub mod content_phishing;
 pub mod content_stream_exec_uplift;
 pub mod encryption_obfuscation;
+pub mod entropy_clustering;
 pub mod evasion_env;
 pub mod evasion_time;
 pub mod external_context;
@@ -157,6 +158,7 @@ pub fn default_detectors_with_settings(settings: DetectorSettings) -> Vec<Box<dy
         Box::new(DecoderRiskDetector),
         Box::new(DecompressionRatioDetector),
         Box::new(HugeImageDetector),
+        Box::new(entropy_clustering::EntropyClusteringDetector),
         Box::new(content_phishing::ContentPhishingDetector),
         Box::new(content_phishing::ContentDeceptionDetector),
         Box::new(metadata_analysis::MetadataAnalysisDetector),
