@@ -276,7 +276,7 @@ enum Command {
         no_recover: bool,
         #[arg(long, help = "Disable chain grouping in scan output")]
         ungroup_chains: bool,
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["jsonl", "jsonl_findings", "sarif"])]
         json: bool,
         #[arg(long, help = "Reduce output to high-priority and runtime-gap triage findings")]
         focused_triage: bool,
@@ -391,6 +391,10 @@ enum Command {
         no_font_signatures: bool,
         #[arg(long, help = "Custom directory containing font CVE signature YAML files")]
         font_signature_dir: Option<PathBuf>,
+        #[arg(long, value_name = "SECONDS", help = "Abort scan if it takes longer than this (batch mode safety net)")]
+        timeout_per_file: Option<u64>,
+        #[arg(long, help = "Print only the verdict label and score")]
+        verdict_only: bool,
     },
     #[command(about = "Sanitise PDF active content (CDR strip-and-report, phase 1)")]
     Sanitize {
@@ -1012,6 +1016,8 @@ fn main() -> Result<()> {
             no_image_dynamic,
             no_font_signatures,
             font_signature_dir,
+            timeout_per_file,
+            verdict_only,
         } => {
             if show_filter_allowlist {
                 print_filter_allowlist()?;
@@ -1078,6 +1084,8 @@ fn main() -> Result<()> {
                 !no_image_dynamic,
                 !no_font_signatures,
                 font_signature_dir.as_deref(),
+                timeout_per_file,
+                verdict_only,
             )
         }
         Command::Diff { baseline, comparison, format } => {
@@ -2813,6 +2821,7 @@ fn apply_query_scan_config(
         filter_allowlist_strict: false,
         profile: false,
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
+        per_file_timeout_ms: None,
     };
     cfg.apply(&mut core, None);
     scan_options.deep = core.deep;
@@ -3894,6 +3903,8 @@ fn run_scan(
     image_dynamic_enabled: bool,
     font_signatures_enabled: bool,
     font_signature_dir: Option<&std::path::Path>,
+    timeout_per_file: Option<u64>,
+    verdict_only: bool,
 ) -> Result<()> {
     if path.is_some() && pdf.is_some() {
         return Err(anyhow!("provide either a PDF path or --path, not both"));
@@ -3960,6 +3971,7 @@ fn run_scan(
         },
         group_chains,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: timeout_per_file.map(|s| s * 1000),
     };
     let runtime_overrides = build_ml_runtime_config(
         ml_provider,
@@ -4097,6 +4109,15 @@ fn run_scan(
     }
     let want_sarif = sarif || sarif_out.is_some();
     let want_yara = yara || yara_out.is_some();
+    if verdict_only {
+        if let Some(v) = &report.verdict {
+            let intent = v.top_intent.as_deref().unwrap_or("Unknown");
+            println!("{} {:.2} {}", v.label, v.score, intent);
+        } else {
+            println!("Unknown 0.00 Unknown");
+        }
+        return Ok(());
+    }
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else if jsonl_findings {
@@ -4584,6 +4605,7 @@ fn run_explain(pdf: &str, finding_id: &str, config: Option<&std::path::Path>) ->
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
         group_chains: true,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: None,
     };
     if let Some(path) = config {
         let cfg = sis_pdf_core::config::Config::load(path)?;
@@ -4952,6 +4974,7 @@ fn run_report(
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
         group_chains,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: None,
     };
     let mut opts = opts;
     let runtime_overrides = build_ml_runtime_config(
@@ -5347,6 +5370,7 @@ fn run_mutate(pdf: &str, out: &std::path::Path, scan: bool) -> Result<()> {
             profile_format: sis_pdf_core::scan::ProfileFormat::Text,
             group_chains: true,
             correlation: CorrelationOptions::default(),
+            per_file_timeout_ms: None,
         };
         let base_report =
             sis_pdf_core::runner::run_scan_with_detectors(&data, opts.clone(), &detectors)?;
@@ -5682,6 +5706,7 @@ mod tests {
             profile_format: sis_pdf_core::scan::ProfileFormat::Text,
             group_chains: true,
             correlation: CorrelationOptions::default(),
+            per_file_timeout_ms: None,
         }
     }
 

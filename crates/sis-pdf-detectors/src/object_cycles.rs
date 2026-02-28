@@ -26,7 +26,7 @@ impl Detector for ObjectReferenceCycleDetector {
     }
 
     fn run(&self, ctx: &sis_pdf_core::scan::ScanContext) -> Result<Vec<Finding>> {
-        let mut findings = Vec::new();
+        let mut raw_cycle_findings = Vec::new();
         let mut visited = HashSet::new();
         let mut stack = Vec::new();
         let mut depths: HashMap<ObjRef, usize> = HashMap::new();
@@ -43,7 +43,7 @@ impl Detector for ObjectReferenceCycleDetector {
                     &mut visited,
                     &mut stack,
                     &mut depths,
-                    &mut findings,
+                    &mut raw_cycle_findings,
                     &executable_refs,
                     0,
                 );
@@ -51,6 +51,51 @@ impl Detector for ObjectReferenceCycleDetector {
                     max_depth = depth;
                 }
             }
+        }
+
+        // Suppress benign page-tree cycles: collapse into one summary Info finding.
+        // "page_tree_parent_child" (Info) and "page_tree_small_cycle" (Low) are
+        // expected structural relationships that should not inflate finding counts.
+        let mut findings = Vec::new();
+        let mut suppressed_count = 0usize;
+        for f in raw_cycle_findings {
+            let cycle_type = f.meta.get("cycle.type").map(|s| s.as_str()).unwrap_or("");
+            let is_benign =
+                cycle_type == "page_tree_parent_child" || cycle_type == "page_tree_small_cycle";
+            if is_benign {
+                suppressed_count += 1;
+            } else {
+                findings.push(f);
+            }
+        }
+        if suppressed_count > 0 {
+            let mut meta = std::collections::HashMap::new();
+            meta.insert("cycle.suppressed_count".into(), suppressed_count.to_string());
+            meta.insert("cycle.type".into(), "page_tree_structural".into());
+            findings.push(Finding {
+                id: String::new(),
+                surface: AttackSurface::FileStructure,
+                kind: "object_reference_cycle".into(),
+                severity: Severity::Info,
+                confidence: Confidence::Strong,
+                impact: Impact::Unknown,
+                title: format!(
+                    "Benign page-tree reference cycles suppressed ({} cycles)",
+                    suppressed_count
+                ),
+                description: format!(
+                    "{} page-tree reference cycles detected and suppressed. \
+                     These are normal parent-child PDF page tree relationships.",
+                    suppressed_count
+                ),
+                objects: vec!["page_tree".into()],
+                evidence: Vec::new(),
+                remediation: None,
+                meta,
+                yara: None,
+                positions: Vec::new(),
+                ..Finding::default()
+            });
         }
 
         // Report excessive reference depth (>20 levels)

@@ -37,6 +37,7 @@ fn scan_fixture(name: &str) -> sis_pdf_core::report::Report {
         group_chains: true,
         correlation: Default::default(),
         yara_scope: None,
+        per_file_timeout_ms: None,
     };
     run_scan_with_detectors(&bytes, opts, &default_detectors()).expect("scan succeeds")
 }
@@ -105,6 +106,7 @@ fn structure_overlay_p2_build_budget() {
         group_chains: true,
         correlation: Default::default(),
         yara_scope: None,
+        per_file_timeout_ms: None,
     };
 
     let graph = parse_pdf(

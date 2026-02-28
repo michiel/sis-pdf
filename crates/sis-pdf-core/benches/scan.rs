@@ -28,6 +28,7 @@ fn bench_scan(c: &mut Criterion) {
         profile_format: ProfileFormat::Text,
         group_chains: true,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: None,
     };
     c.bench_function("sis_pdf_scan_synthetic", move |b| {
         let detectors = sis_pdf_detectors::default_detectors();

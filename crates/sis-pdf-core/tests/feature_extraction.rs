@@ -34,6 +34,7 @@ fn extract_features(rel: &str) -> sis_pdf_core::features::FeatureVector {
         profile_format: ProfileFormat::Text,
         group_chains: true,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: None,
     };
     FeatureExtractor::extract_from_bytes(&bytes, &opts).expect("extract features")
 }

@@ -115,9 +115,16 @@ fn run_detectors_sequential(
     detectors: &[Box<dyn crate::detect::Detector>],
     ctx: &ScanContext,
     profiler: &Profiler,
+    deadline: Option<std::time::Instant>,
 ) -> Result<Vec<Finding>> {
     let mut out = Vec::new();
     for d in detectors {
+        if let Some(dl) = deadline {
+            if std::time::Instant::now() >= dl {
+                debug!("Per-file timeout reached; skipping remaining detectors");
+                break;
+            }
+        }
         if ctx.options.fast && d.cost() != crate::detect::Cost::Cheap {
             continue;
         }
@@ -205,6 +212,10 @@ pub fn run_scan_with_detectors(
     profiler.end_phase();
 
     let ctx = ScanContext::new(bytes, graph, options);
+
+    let scan_deadline: Option<std::time::Instant> = ctx.options.per_file_timeout_ms.map(|ms| {
+        std::time::Instant::now() + std::time::Duration::from_millis(ms)
+    });
 
     let detection_start = Instant::now();
     profiler.begin_phase("detection");
@@ -335,17 +346,17 @@ pub fn run_scan_with_detectors(
                                 "Failed to build parallel detector pool; falling back to sequential",
                         }
                         .emit();
-                        run_detectors_sequential(detectors, &ctx, &profiler)?
+                        run_detectors_sequential(detectors, &ctx, &profiler, scan_deadline)?
                     }
                 }
             } else {
-                run_detectors_sequential(detectors, &ctx, &profiler)?
+                run_detectors_sequential(detectors, &ctx, &profiler, scan_deadline)?
             }
         }
 
         #[cfg(not(feature = "parallel"))]
         {
-            run_detectors_sequential(detectors, &ctx, &profiler)?
+            run_detectors_sequential(detectors, &ctx, &profiler, scan_deadline)?
         }
     };
     profiler.end_phase();

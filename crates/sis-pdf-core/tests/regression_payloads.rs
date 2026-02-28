@@ -30,6 +30,7 @@ fn external_payload_sets_basic_coverage() {
         profile_format: ProfileFormat::Text,
         group_chains: true,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: None,
     };
     let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts, &detectors)
         .expect("scan should succeed");

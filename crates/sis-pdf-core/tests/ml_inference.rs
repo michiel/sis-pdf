@@ -49,6 +49,7 @@ fn load_context() -> anyhow::Result<ScanContext<'static>> {
         profile_format: ProfileFormat::Text,
         group_chains: true,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: None,
     };
     Ok(ScanContext::new(bytes, graph, opts))
 }

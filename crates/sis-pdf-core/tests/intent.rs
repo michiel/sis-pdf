@@ -27,6 +27,7 @@ fn base_opts() -> ScanOptions {
         profile_format: ProfileFormat::Text,
         group_chains: true,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: None,
     }
 }
 

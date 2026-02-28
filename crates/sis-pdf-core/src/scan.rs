@@ -51,6 +51,9 @@ pub struct ScanOptions {
     pub profile_format: ProfileFormat,
     pub group_chains: bool,
     pub correlation: CorrelationOptions,
+    /// Per-file scan timeout in milliseconds. If a scan exceeds this budget,
+    /// remaining detectors are skipped and partial findings are returned.
+    pub per_file_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

@@ -2647,6 +2647,7 @@ fn build_scan_context<'a>(
         profile_format: sis_pdf_core::scan::ProfileFormat::Text,
         group_chains: options.group_chains,
         correlation: options.correlation.clone(),
+        per_file_timeout_ms: None,
     };
 
     // Parse PDF
@@ -7936,6 +7937,37 @@ fn action_path_summary(
 }
 
 /// List all action chains
+/// Run a full detector-based scan and return ExploitChain objects as JSON.
+/// Falls back to an empty chain list if the scan fails.
+fn list_detector_chains(
+    bytes: &[u8],
+    options: &sis_pdf_core::scan::ScanOptions,
+    _predicate: Option<&PredicateExpr>,
+) -> Result<serde_json::Value> {
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = match sis_pdf_core::runner::run_scan_with_detectors(
+        bytes,
+        options.clone(),
+        &detectors,
+    ) {
+        Ok(r) => r,
+        Err(_) => {
+            return Ok(serde_json::json!({"type": "chains", "count": 0, "chains": []}));
+        }
+    };
+    let count = report.chains.len();
+    let chain_values: Vec<serde_json::Value> = report
+        .chains
+        .iter()
+        .map(|c| serde_json::to_value(c).unwrap_or(serde_json::Value::Null))
+        .collect();
+    Ok(serde_json::json!({
+        "type": "chains",
+        "count": count,
+        "chains": chain_values,
+    }))
+}
+
 fn list_action_chains(
     ctx: &ScanContext,
     predicate: Option<&PredicateExpr>,

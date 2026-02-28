@@ -1748,7 +1748,32 @@ fn js_payload_candidates_from_embedded_stream(
     out
 }
 
+/// Quick-reject heuristic: is this content definitely NOT JavaScript?
+/// Rejects PDF dicts (<<), PostScript (%!), PDF headers (%PDF), and binary data.
+fn content_is_not_js(data: &[u8]) -> bool {
+    const MAX_PEEK: usize = 16;
+    let peek = &data[..data.len().min(MAX_PEEK)];
+    // Reject PDF dict, PostScript, or PDF header markers
+    if peek.starts_with(b"<<")
+        || peek.starts_with(b"%!")
+        || peek.starts_with(b"%PDF")
+    {
+        return true;
+    }
+    // Reject binary data (null bytes in first 4 bytes)
+    if peek.iter().take(4).any(|&b| b == 0) {
+        return true;
+    }
+    false
+}
+
 fn embedded_file_looks_like_js(stream: &sis_pdf_pdf::object::PdfStream<'_>, data: &[u8]) -> bool {
+    // Quick-reject: PDF dicts, PostScript, and binary data are never JavaScript.
+    // This prevents the "unexpected token '<<'" sandbox error on .joboptions and
+    // similar files that contain PDF dictionary content.
+    if content_is_not_js(data) {
+        return false;
+    }
     if let Some(name) = embedded_filename(&stream.dict) {
         let lower = name.to_ascii_lowercase();
         if lower.ends_with(".js")

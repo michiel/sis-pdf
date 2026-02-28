@@ -29,6 +29,7 @@ fn objstm_scan_opts(deep: bool) -> ScanOptions {
         profile_format: ProfileFormat::Text,
         group_chains: true,
         correlation: CorrelationOptions::default(),
+        per_file_timeout_ms: None,
     }
 }
 

@@ -86,11 +86,7 @@ pub fn synthesise_chains(
     }
 
     let chains = merge_singleton_clusters(chains, &findings_by_id);
-    // Note: deduplicate_chains is intentionally not called here.
-    // The singleton deduplication breaks ObjectChainRole::Payload memberships
-    // because the upsert model keeps only the highest role per (object, chain) pair.
-    // Singletons provide separate role memberships for multi-role objects.
-    // The cluster merging above already reduces the singleton rate significantly.
+    let chains = deduplicate_chains(chains);
     let chains = if group_chains {
         group_chains_by_signature(chains, &findings_by_id)
     } else {
@@ -515,6 +511,10 @@ fn merge_singleton_clusters(
 /// Remove singleton chains whose sole finding is already claimed by a multi-finding chain.
 /// Only singleton chains (1 finding) are removed — multi-finding object chains always survive
 /// to preserve role and completeness context for their objects.
+/// Remove chains whose findings overlap heavily with higher-priority chains.
+/// Priority order: highest finding count first, then highest score.
+/// A chain is kept only if it contributes at least 50% new (unclaimed) findings.
+/// Single-finding chains that duplicate a finding from a multi-chain are dropped.
 fn deduplicate_chains(mut chains: Vec<ExploitChain>) -> Vec<ExploitChain> {
     // Sort: highest finding count first, then highest score
     chains.sort_by(|a, b| {
@@ -524,25 +524,40 @@ fn deduplicate_chains(mut chains: Vec<ExploitChain>) -> Vec<ExploitChain> {
             .then(b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal))
     });
 
-    // Collect all finding IDs claimed by multi-finding chains (len > 1)
     let mut claimed: HashSet<String> = HashSet::new();
-    for chain in chains.iter().filter(|c| c.findings.len() > 1) {
-        for fid in &chain.findings {
-            claimed.insert(fid.clone());
+    let mut result: Vec<ExploitChain> = Vec::new();
+
+    for mut chain in chains {
+        let total = chain.findings.len();
+        let unclaimed: Vec<String> =
+            chain.findings.iter().filter(|id| !claimed.contains(id.as_str())).cloned().collect();
+
+        if unclaimed.is_empty() {
+            // All findings already claimed — drop this chain
+            continue;
         }
+
+        // If more than half the original findings are already claimed, drop the chain.
+        // Exception: keep singleton chains that have unique findings.
+        let claim_fraction = 1.0 - (unclaimed.len() as f64 / total as f64);
+        if claim_fraction > 0.5 && total > 1 {
+            continue;
+        }
+
+        // Claim unclaimed findings
+        for id in &unclaimed {
+            claimed.insert(id.clone());
+        }
+
+        // Trim already-claimed findings from the chain's finding list
+        if unclaimed.len() != total {
+            chain.findings = unclaimed;
+        }
+
+        result.push(chain);
     }
 
-    // Remove singleton chains whose finding is already claimed
-    chains
-        .into_iter()
-        .filter(|chain| {
-            if chain.findings.len() != 1 {
-                return true; // keep all multi-finding chains
-            }
-            let fid = &chain.findings[0];
-            !claimed.contains(fid.as_str())
-        })
-        .collect()
+    result
 }
 
 fn chain_id(chain: &ExploitChain) -> String {
@@ -680,8 +695,7 @@ fn annotate_low_completeness(chain: &mut ExploitChain) {
 fn populate_chain_enrichment(chain: &mut ExploitChain, findings_by_id: &HashMap<String, &Finding>) {
     chain.confirmed_stages = collect_chain_stages(chain, findings_by_id, true);
     chain.inferred_stages = collect_chain_stages(chain, findings_by_id, false);
-    chain.chain_completeness =
-        chain.confirmed_stages.len() as f64 / EXPECTED_CHAIN_STAGES.len() as f64;
+    infer_and_score_stages(chain, findings_by_id);
     chain.reader_risk = HashMap::new();
     chain.active_mitigations = collect_unique_meta_values(
         chain,
@@ -694,6 +708,93 @@ fn populate_chain_enrichment(chain: &mut ExploitChain, findings_by_id: &HashMap<
         derive_unmet_conditions(chain, findings_by_id, &chain.required_conditions);
     chain.finding_criticality = compute_finding_criticality(chain, findings_by_id);
     chain.narrative = compose_chain_narrative(chain);
+}
+
+/// Augment confirmed/inferred_stages from trigger/action/payload/finding kinds,
+/// then compute chain_completeness using a blended formula.
+///
+/// Stage weights: confirmed = 1.0, inferred = 0.4, total = 5.0 stages.
+fn infer_and_score_stages(chain: &mut ExploitChain, findings_by_id: &HashMap<String, &Finding>) {
+    use std::collections::HashSet;
+
+    let mut confirmed: HashSet<String> = chain.confirmed_stages.iter().cloned().collect();
+    let mut inferred: HashSet<String> = chain.inferred_stages.iter().cloned().collect();
+
+    // Infer "input" from trigger presence
+    if chain.trigger.is_some() {
+        confirmed.insert("input".into());
+    }
+
+    // Infer "execute" from action kind
+    if let Some(action) = &chain.action {
+        match action.as_str() {
+            "js_present"
+            | "launch_action_present"
+            | "aa_event_present"
+            | "uri_javascript_scheme"
+            | "uri_file_scheme"
+            | "uri_command_injection" => {
+                confirmed.insert("execute".into());
+            }
+            _ => {
+                inferred.insert("execute".into());
+            }
+        }
+    }
+
+    // Infer "decode" / "execute" from payload type
+    if let Some(payload) = &chain.payload {
+        match payload.as_str() {
+            "stream" | "embedded_file" | "image" => {
+                confirmed.insert("decode".into());
+            }
+            "javascript" => {
+                inferred.insert("decode".into());
+                confirmed.insert("execute".into());
+            }
+            _ => {}
+        }
+    }
+
+    // Infer "egress" from network notes
+    if chain.notes.get("chain.has_network_egress").map(|v| v == "true").unwrap_or(false) {
+        inferred.insert("egress".into());
+    }
+
+    // Infer "render" from image/font/content_stream finding kinds
+    let has_render_signal = chain.findings.iter().any(|fid| {
+        findings_by_id
+            .get(fid.as_str())
+            .map(|f| {
+                f.kind.starts_with("image.")
+                    || f.kind.starts_with("font.")
+                    || f.kind.starts_with("content_stream")
+                    || f.kind == "content_image_only_page"
+            })
+            .unwrap_or(false)
+    });
+    if has_render_signal {
+        inferred.insert("render".into());
+    }
+
+    // Remove from inferred anything that's already confirmed
+    inferred.retain(|s| !confirmed.contains(s));
+
+    // Write back sorted lists
+    let mut confirmed_vec: Vec<String> = confirmed.into_iter().collect();
+    confirmed_vec.sort_by_key(|s| {
+        EXPECTED_CHAIN_STAGES.iter().position(|e| e == s).unwrap_or(usize::MAX)
+    });
+    let mut inferred_vec: Vec<String> = inferred.into_iter().collect();
+    inferred_vec.sort();
+    chain.confirmed_stages = confirmed_vec;
+    chain.inferred_stages = inferred_vec;
+
+    // Blended completeness: confirmed*1.0 + inferred*0.4 / 5 total stages
+    const TOTAL_STAGES: f64 = EXPECTED_CHAIN_STAGES.len() as f64;
+    let confirmed_score = chain.confirmed_stages.len() as f64;
+    let inferred_score = chain.inferred_stages.len() as f64 * 0.4;
+    chain.chain_completeness = ((confirmed_score + inferred_score) / TOTAL_STAGES).min(1.0);
 }
 
 fn is_confidence_probable_or_higher(confidence: Confidence) -> bool {

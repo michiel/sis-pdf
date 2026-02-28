@@ -584,6 +584,12 @@ fn populate_base_metadata(
     }
     if !signals.errors.is_empty() {
         meta.insert("js.runtime.errors".into(), signals.errors.join("; "));
+        // Mark as likely non-JS when sandbox hits a PDF dict token error.
+        // This happens when a .joboptions or similar file starting with "<<" is
+        // incorrectly forwarded to the JS sandbox.
+        if signals.errors.iter().any(|e| e.contains("unexpected token '<<'")) {
+            meta.insert("js.likely_non_js".into(), "true".into());
+        }
         let (
             unresolved_identifier_count,
             unresolved_callable_count,

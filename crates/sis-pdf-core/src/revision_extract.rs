@@ -257,6 +257,7 @@ mod tests {
             profile_format: crate::scan::ProfileFormat::Text,
             group_chains: true,
             correlation: crate::scan::CorrelationOptions::default(),
+            per_file_timeout_ms: None,
         }
     }
 
