@@ -930,6 +930,125 @@ fn cov6_entropy_clustering_fires_on_apt42_polyglot_deep() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Fog-netlify phishing + decompression-bomb DoS fixtures
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fog_netlify_phishing_detections_present() {
+    // Fog campaign PDF: phishing lure linking to netlify-hosted ZIP with "/Pay" path.
+    // Same file as secondary-invalid-trailer-6eb8.pdf (multi-purpose fixture).
+    let bytes =
+        include_bytes!("fixtures/corpus_captured/secondary-invalid-trailer-6eb8.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, opts(), &detectors)
+        .expect("scan should succeed");
+
+    // URI action targeting netlify /Pay path
+    let uri_action = finding_by_kind(&report, "action_remote_target_suspicious");
+    assert_eq!(uri_action.severity, sis_pdf_core::model::Severity::Low);
+    assert_eq!(uri_action.confidence, sis_pdf_core::model::Confidence::Probable);
+    let target = uri_action.meta.get("action.target").expect("action.target present");
+    assert!(
+        target.contains("netlify.app"),
+        "expected netlify.app in action target, got: {target}"
+    );
+    assert!(
+        target.to_lowercase().contains("/pay"),
+        "expected /Pay path in action target, got: {target}"
+    );
+
+    // Passive external resource fetch also detected
+    assert_finding_kind_present(&report, "passive_external_resource_fetch");
+    let passive = finding_by_kind(&report, "passive_external_resource_fetch");
+    let passive_targets = passive
+        .meta
+        .get("passive.external_targets_normalised")
+        .expect("passive.external_targets_normalised present");
+    assert!(passive_targets.contains("netlify.app"), "expected netlify.app in passive targets");
+
+    // URI classification summary flags suspicious extension (.zip)
+    let uri_summary = finding_by_kind(&report, "uri_classification_summary");
+    assert_eq!(
+        uri_summary.meta.get("uri.has_suspicious_ext").map(String::as_str),
+        Some("true"),
+        "expected uri.has_suspicious_ext=true"
+    );
+
+    // Verdict must be Malicious or Suspicious
+    let verdict = report.verdict.as_ref().expect("verdict present");
+    assert!(
+        verdict.label == "Malicious" || verdict.label == "Suspicious",
+        "drift_guard: fog-netlify verdict must be Malicious or Suspicious, got: {}",
+        verdict.label
+    );
+}
+
+#[test]
+fn decompression_bomb_dos_detections_present() {
+    // Decompression bomb: 485:1 ratio stream, causes parser/memory exhaustion.
+    // Same file as noisy-correlated-highrisk-11606.pdf (multi-purpose fixture).
+    let bytes =
+        include_bytes!("fixtures/corpus_captured/noisy-correlated-highrisk-11606.pdf");
+    let detectors = sis_pdf_detectors::default_detectors();
+    // Use 64MB per-stream limit so the full 485:1 bomb stream (~26MB output) can be
+    // measured accurately. opts() caps at 8MB which would cap the ratio at ~128.
+    // Also raise max_total_decoded_bytes: reserve_budget() reserves max_decode_bytes
+    // upfront, so total must be >> max_decode_bytes or every second stream fails.
+    let mut scan_opts = opts();
+    scan_opts.max_decode_bytes = 64 * 1024 * 1024;
+    scan_opts.max_total_decoded_bytes = 512 * 1024 * 1024;
+    let report = sis_pdf_core::runner::run_scan_with_detectors(bytes, scan_opts, &detectors)
+        .expect("scan should succeed");
+
+    // High-ratio decompression stream (485:1)
+    let decomp = report
+        .findings
+        .iter()
+        .find(|f| {
+            f.kind == "decompression_ratio_suspicious"
+                && f.meta
+                    .get("decode.ratio")
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .map(|r| r > 400.0)
+                    .unwrap_or(false)
+        })
+        .expect("decompression_ratio_suspicious with ratio > 400 must be present");
+    // Severity may be High (fast solo run) or Critical (slow parallel run: detection exceeds
+    // 5s threshold which triggers parser_resource_exhaustion + decode_structural_exhaustion_chain
+    // escalation). Both are valid high-severity outcomes for this decompression bomb.
+    assert!(
+        decomp.severity == sis_pdf_core::model::Severity::High
+            || decomp.severity == sis_pdf_core::model::Severity::Critical,
+        "expected High or Critical severity, got {:?}",
+        decomp.severity
+    );
+    assert_eq!(decomp.confidence, sis_pdf_core::model::Confidence::Probable);
+    let ratio: f64 = decomp
+        .meta
+        .get("decode.ratio")
+        .expect("decode.ratio present")
+        .parse()
+        .expect("decode.ratio numeric");
+    assert!(ratio > 480.0, "expected ratio > 480, got {ratio}");
+
+    // DenialOfService intent bucket must fire
+    assert_intent_bucket(&report, "DenialOfService");
+    let dos_bucket = intent_bucket(&report, "DenialOfService");
+    assert!(
+        dos_bucket.score > 0,
+        "DenialOfService bucket score must be > 0"
+    );
+
+    // Verdict must be Malicious or Suspicious
+    let verdict = report.verdict.as_ref().expect("verdict present");
+    assert!(
+        verdict.label == "Malicious" || verdict.label == "Suspicious",
+        "drift_guard: decompression bomb verdict must be Malicious or Suspicious, got: {}",
+        verdict.label
+    );
+}
+
 #[test]
 fn cov6_entropy_clustering_absent_without_deep() {
     // With deep=false the entropy_clustering detector is Cost::Expensive and should be skipped.
