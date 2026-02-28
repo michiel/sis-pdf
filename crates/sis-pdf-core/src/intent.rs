@@ -269,10 +269,12 @@ fn signals_from_finding(f: &Finding) -> Vec<IntentSignal> {
             out.push(signal(IntentBucket::ExploitPrimitive, 2, "Decoder risk", fid.clone()));
         }
         "decompression_ratio_suspicious" => {
-            // Weight by ratio severity for DoS intent
+            // Weight by ratio severity for DoS intent.
+            // DecompressionRatioDetector uses "decode.ratio"; "decompression.ratio" is a legacy key.
             let ratio: f64 = f
                 .meta
-                .get("decompression.ratio")
+                .get("decode.ratio")
+                .or_else(|| f.meta.get("decompression.ratio"))
                 .or_else(|| f.meta.get("ratio"))
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(0.0);
