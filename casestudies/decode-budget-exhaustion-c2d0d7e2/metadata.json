@@ -1,0 +1,30 @@
+{
+  "id": "decode-budget-exhaustion-c2d0d7e2",
+  "filename": "decode-budget-exhaustion-c2d0d7e2.pdf",
+  "sha256": "c2d0d7e20939319d1500856a40a275e72eed9174b02353b55bcbff58aef8e75d",
+  "fixture_path": "corpus_captured/decode-budget-exhaustion-c2d0d7e2.pdf",
+  "source": "mwb-2026-01-26 corpus batch",
+  "threat_actor": "Unknown",
+  "threat_family": "decode-budget-exhaustion",
+  "classification": "Malicious",
+  "techniques": [
+    "decoder-pressure",
+    "object-graph-exhaustion",
+    "content-stream-evasion-markers",
+    "large-page-fanout"
+  ],
+  "mitre_attack": ["T1499", "T1203"],
+  "detection_signals": [
+    "parser_resource_exhaustion: high/strong",
+    "object_reference_depth_high: high/strong",
+    "content_stream_marked_evasion: medium/tentative x9",
+    "label_mismatch_stream_type: medium/strong x25",
+    "image.suspect_strip_dimensions: medium/probable x20"
+  ],
+  "intent_buckets": ["DenialOfService", "ExploitPrimitive"],
+  "verdict": "Malicious",
+  "regression_test": "decode_budget_exhaustion_fixture_stays_stable",
+  "first_seen": "2026-01-26",
+  "analysis_date": "2026-02-28",
+  "notes": "Runtime-profiled deep scan shows a severe hotspot in content_first_stage1 (~33.0s of 33.7s total). Non-fatal decode_budget_exceeded warnings repeat heavily in telemetry, but the kind is not emitted as a stable finding in report JSON, creating observability drift between logs and findings. Chain output is mostly singleton despite high finding volume."
+}

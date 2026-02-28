@@ -1,0 +1,30 @@
+{
+  "id": "decompression-bomb-font-flood-b509f6c9",
+  "filename": "decompression-bomb-font-flood-b509f6c9.pdf",
+  "sha256": "b509f6c92dd4661b2872b9d18ffc07dced17306b4bdf74df19932bd0f8b110d0",
+  "fixture_path": "corpus_captured/decompression-bomb-font-flood-b509f6c9.pdf",
+  "source": "mwb-2026-02-11 corpus batch",
+  "threat_actor": "Unknown",
+  "threat_family": "decompression-bomb-with-font-noise",
+  "classification": "Malicious",
+  "techniques": [
+    "decompression-bomb",
+    "decoder-pressure",
+    "parser-resource-exhaustion",
+    "font-anomaly-flood"
+  ],
+  "mitre_attack": ["T1499", "T1203"],
+  "detection_signals": [
+    "decompression_ratio_suspicious: critical/strong x6 (max ratio 1025.6)",
+    "parser_resource_exhaustion: high/strong",
+    "label_mismatch_stream_type: high/strong x7",
+    "font.cmap_range_overlap: medium/strong x5",
+    "font_exploitation_cluster: high/probable"
+  ],
+  "intent_buckets": ["DenialOfService", "ExploitPrimitive"],
+  "verdict": "Malicious",
+  "regression_test": "decompression_bomb_font_flood_fixture_stays_stable",
+  "first_seen": "2026-02-11",
+  "analysis_date": "2026-02-28",
+  "notes": "Deep scan runtime ~5.1s with content_first_stage1 consuming ~5.0s. Intent scoring strongly captures DenialOfService (score 28), but chains still fragment decompression findings into several singleton top chains rather than one explicit decode->exhaustion attack path."
+}

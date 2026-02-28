@@ -296,6 +296,41 @@
         "DataExfiltration intent bucket score>=40",
         "Verdict Suspicious or Malicious"
       ]
+    },
+    {
+      "path": "decode-budget-exhaustion-c2d0d7e2.pdf",
+      "sha256": "c2d0d7e20939319d1500856a40a275e72eed9174b02353b55bcbff58aef8e75d",
+      "source_path": "tmp/corpus/mwb-2026-01-26/c2d0d7e20939319d1500856a40a275e72eed9174b02353b55bcbff58aef8e75d.pdf",
+      "regression_targets": [
+        "content_first_stage1 performance hotspot remains bounded",
+        "label_mismatch_stream_type high multiplicity",
+        "DenialOfService intent bucket present",
+        "object_reference_depth_high high severity present"
+      ]
+    },
+    {
+      "path": "decompression-bomb-font-flood-b509f6c9.pdf",
+      "sha256": "b509f6c92dd4661b2872b9d18ffc07dced17306b4bdf74df19932bd0f8b110d0",
+      "source_path": "tmp/corpus/mwb-2026-02-11/b509f6c92dd4661b2872b9d18ffc07dced17306b4bdf74df19932bd0f8b110d0.pdf",
+      "regression_targets": [
+        "decompression_ratio_suspicious critical coverage",
+        "parser_resource_exhaustion present",
+        "DenialOfService intent score >= 20",
+        "content_first_stage1 runtime budget observation",
+        "decompression_ratio_suspicious confidence probable_or_strong"
+      ]
+    },
+    {
+      "path": "connectwise-filter-obfuscation-9ab20ec2.pdf",
+      "sha256": "9ab20ec2ce6e78ca129ebfd4e0d1e844de1b03c7fbac9ea9a681d0dd6383029d",
+      "source_path": "tmp/corpus/mwb-2026-01-30/9ab20ec2ce6e78ca129ebfd4e0d1e844de1b03c7fbac9ea9a681d0dd6383029d.pdf",
+      "regression_targets": [
+        "annotation_action_chain >= 15",
+        "uri_classification_summary >= 15",
+        "object_reference_cycle >= 20",
+        "DataExfiltration intent score >= 30",
+        "chain count remains significantly lower than finding count"
+      ]
     }
   ]
 }

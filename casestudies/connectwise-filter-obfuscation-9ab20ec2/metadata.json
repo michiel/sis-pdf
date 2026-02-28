@@ -1,0 +1,30 @@
+{
+  "id": "connectwise-filter-obfuscation-9ab20ec2",
+  "filename": "connectwise-filter-obfuscation-9ab20ec2.pdf",
+  "sha256": "9ab20ec2ce6e78ca129ebfd4e0d1e844de1b03c7fbac9ea9a681d0dd6383029d",
+  "fixture_path": "corpus_captured/connectwise-filter-obfuscation-9ab20ec2.pdf",
+  "source": "mwb-2026-01-30 corpus batch",
+  "threat_actor": "Unknown (ConnectWise lure cluster)",
+  "threat_family": "connectwise-filter-obfuscation",
+  "classification": "Malicious",
+  "techniques": [
+    "filter-obfuscation",
+    "mass-annotation-uri",
+    "external-installer-lure",
+    "incremental-update-noise"
+  ],
+  "mitre_attack": ["T1566.001", "T1071.001", "T1027"],
+  "detection_signals": [
+    "annotation_action_chain: low/probable x20",
+    "uri_classification_summary: info/strong x20",
+    "object_reference_cycle: medium/strong x25",
+    "font_exploitation_cluster: high/probable",
+    "content_overlay_link: high/probable"
+  ],
+  "intent_buckets": ["DataExfiltration", "ExploitPrimitive", "Phishing", "Obfuscation"],
+  "verdict": "Malicious",
+  "regression_test": "connectwise_filter_obfuscation_fixture_stays_stable",
+  "first_seen": "2026-01-30",
+  "analysis_date": "2026-02-28",
+  "notes": "URI payload points to a ScreenConnect MSI installer target (`wakilamakila.com/...ClientSetup.msi`). DataExfiltration scoring is strong (score 40) due to high URI volume, but chain ranking is still dominated by singleton structural findings rather than one consolidated lure->egress path."
+}

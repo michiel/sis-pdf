@@ -15,6 +15,9 @@ The corresponding PDF files are tracked as test fixtures in:
 |---|---|---|---|
 | apt42-polyglot-pdf-zip-pe | polyglot-dropper | Malicious | APT42 |
 | booking-js-phishing | js-credential-phishing | Suspicious | Unknown |
+| connectwise-filter-obfuscation-9ab20ec2 | connectwise-filter-obfuscation | Malicious | Unknown (ConnectWise lure cluster) |
+| decode-budget-exhaustion-c2d0d7e2 | decode-budget-exhaustion | Malicious | Unknown |
+| decompression-bomb-font-flood-b509f6c9 | decompression-bomb-with-font-noise | Malicious | Unknown |
 | jbig2-zeroclick-cve2021-30860 | image-codec-exploit | Malicious | Unknown |
 | modern-gated-supplychain | supply-chain-update-vector | Suspicious | Unknown |
 | modern-openaction-staged | staged-openaction-exploit | Suspicious | Unknown |

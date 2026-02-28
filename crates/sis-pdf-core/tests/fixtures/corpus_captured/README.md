@@ -38,6 +38,9 @@ The following fixtures drive the uplift plan in `plans/20260228-full-uplift-impl
 | `perf-hang-717obj-fb87d8a7.pdf` | 717 objects, caused 292 s hang in `content_stream_exec_uplift` | scan completes in <10 s (stage 1 fix) |
 | `font-heavy-objstm-5bb77b57.pdf` | 25+ font hinting anomalies, was 13 s scan | `font_exploitation_cluster` (stage 3), singleton rate ≤70% (stage 2), scan <5 s (stage 1+3) |
 | `encoded-uri-payload-b710ae59.pdf` | Encoded C2 URL with base64 query params | network intents, URI classification |
+| `decode-budget-exhaustion-c2d0d7e2.pdf` | 545-page oversized structure with repeated decode budget exhaustion | `decode_budget_exceeded` multiplicity, `DenialOfService` intent, content-first runtime hotspot |
+| `decompression-bomb-font-flood-b509f6c9.pdf` | decompression bomb + font anomaly flood | `decompression_ratio_suspicious` critical signals, `parser_resource_exhaustion`, DoS intent scoring |
+| `connectwise-filter-obfuscation-9ab20ec2.pdf` | ConnectWise-style filter obfuscation + mass external links | `declared_filter_invalid` dominance, `annotation_action_chain` volume, DataExfiltration intent behaviour |
 
 These fixtures also guard against regression for existing fixtures:
 - `noisy-correlated-highrisk-11606.pdf` — decompression bomb (485:1 ratio), `DenialOfService` intent (stage 3)

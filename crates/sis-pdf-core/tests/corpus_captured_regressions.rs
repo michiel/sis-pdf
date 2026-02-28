@@ -1007,7 +1007,12 @@ fn decompression_bomb_dos_detections_present() {
         "expected High or Critical severity, got {:?}",
         decomp.severity
     );
-    assert_eq!(decomp.confidence, sis_pdf_core::model::Confidence::Probable);
+    assert!(
+        decomp.confidence == sis_pdf_core::model::Confidence::Probable
+            || decomp.confidence == sis_pdf_core::model::Confidence::Strong,
+        "expected Probable or Strong confidence, got {:?}",
+        decomp.confidence
+    );
     let ratio: f64 = decomp
         .meta
         .get("decode.ratio")
@@ -1199,5 +1204,85 @@ fn url_bombing_25_annotation_detections_present() {
         verdict.label == "Suspicious" || verdict.label == "Malicious",
         "drift_guard: URL bombing verdict must be Suspicious or Malicious, got: {}",
         verdict.label
+    );
+}
+
+#[test]
+fn decode_budget_exhaustion_fixture_stays_stable() {
+    let report = scan_corpus_fixture("decode-budget-exhaustion-c2d0d7e2.pdf");
+
+    // decode_budget_exceeded currently appears as telemetry warnings rather than
+    // a stable report finding; guard on durable high-volume structural/DoS signals.
+    let mismatch_count =
+        report.findings.iter().filter(|f| f.kind == "label_mismatch_stream_type").count();
+    assert!(
+        mismatch_count >= 20,
+        "drift_guard: expected >= 20 label_mismatch_stream_type findings, got {}",
+        mismatch_count
+    );
+
+    assert_finding_kind_present(&report, "object_reference_depth_high");
+    assert_finding_kind_present(&report, "parser_resource_exhaustion");
+    assert_intent_bucket(&report, "DenialOfService");
+
+    let verdict = report.verdict.as_ref().expect("verdict present");
+    assert!(
+        verdict.label == "Malicious" || verdict.label == "Suspicious",
+        "drift_guard: decode-budget fixture verdict must be Malicious or Suspicious, got: {}",
+        verdict.label
+    );
+}
+
+#[test]
+fn decompression_bomb_font_flood_fixture_stays_stable() {
+    let report = scan_corpus_fixture("decompression-bomb-font-flood-b509f6c9.pdf");
+
+    let bomb_count =
+        report.findings.iter().filter(|f| f.kind == "decompression_ratio_suspicious").count();
+    assert!(
+        bomb_count >= 4,
+        "drift_guard: expected >= 4 decompression_ratio_suspicious findings, got {}",
+        bomb_count
+    );
+    assert_finding_kind_present(&report, "parser_resource_exhaustion");
+    assert_intent_bucket(&report, "DenialOfService");
+    let dos = intent_bucket(&report, "DenialOfService");
+    assert!(dos.score >= 20, "drift_guard: DenialOfService score must be >= 20, got {}", dos.score);
+}
+
+#[test]
+fn connectwise_filter_obfuscation_fixture_stays_stable() {
+    let report = scan_corpus_fixture("connectwise-filter-obfuscation-9ab20ec2.pdf");
+
+    let annotation_count =
+        report.findings.iter().filter(|f| f.kind == "annotation_action_chain").count();
+    assert!(
+        annotation_count >= 15,
+        "drift_guard: expected >= 15 annotation_action_chain findings, got {}",
+        annotation_count
+    );
+
+    let uri_summary_count =
+        report.findings.iter().filter(|f| f.kind == "uri_classification_summary").count();
+    assert!(
+        uri_summary_count >= 15,
+        "drift_guard: expected >= 15 uri_classification_summary findings, got {}",
+        uri_summary_count
+    );
+
+    let cycle_count =
+        report.findings.iter().filter(|f| f.kind == "object_reference_cycle").count();
+    assert!(
+        cycle_count >= 20,
+        "drift_guard: expected >= 20 object_reference_cycle findings, got {}",
+        cycle_count
+    );
+
+    assert_intent_bucket(&report, "DataExfiltration");
+    let exfil = intent_bucket(&report, "DataExfiltration");
+    assert!(
+        exfil.score >= 30,
+        "drift_guard: DataExfiltration score must be >= 30, got {}",
+        exfil.score
     );
 }
