@@ -150,6 +150,76 @@ Findings in this project include metadata fields for `severity`, `impact`, and `
 
 **CLI integration tests** live in `crates/sis-pdf/tests/cli_integration.rs` and exercise the compiled `sis` binary via `std::process::Command`. Run with `cargo test -p sis-pdf --test cli_integration`. The fixture used is `crates/sis-pdf-core/tests/fixtures/actions/launch_cve_2010_1240.pdf`. A deferred test for `sis diff` (identical inputs → exit 0) requires temp-file coordination and is tracked as a follow-up.
 
+## Case Study Workflow
+
+`casestudies/` at the project root contains deep-analysis records for corpus PDFs that have been thoroughly investigated. Each entry has `metadata.json` (structured threat data) and `analysis.md` (narrative analysis). The PDF files themselves are tracked as test fixtures in `crates/sis-pdf-core/tests/fixtures/corpus_captured/`.
+
+### When to add a new case study
+
+Add a case study when a corpus sample meets **all** of the following:
+
+1. The PDF has been committed to `tests/fixtures/corpus_captured/` and registered in `manifest.json`.
+2. At least one regression test in `corpus_captured_regressions.rs` guards a key detection signal.
+3. A deep scan (`sis scan <file> --deep --json`) has been run and its output reviewed.
+
+### Steps to create a case study entry
+
+1. **Choose a slug**: use `<threat-name>-<sha256-prefix-8>` (e.g., `apt42-polyglot-pdf-zip-pe`).
+
+2. **Create the directory**:
+   ```
+   mkdir casestudies/<slug>
+   ```
+
+3. **Run a deep scan** and capture JSON output:
+   ```
+   sis scan <path/to/file.pdf> --deep --json > /tmp/scan.json
+   ```
+
+4. **Write `metadata.json`** with these fields:
+   - `id`, `filename`, `sha256`
+   - `fixture_path` (relative to `crates/sis-pdf-core/tests/fixtures/`)
+   - `source` (corpus batch name and date)
+   - `threat_actor` (attributed or Unknown)
+   - `threat_family` (short label)
+   - `classification` (Malicious / Suspicious / Anomalous / Clean)
+   - `techniques` (list of technique names)
+   - `mitre_attack` (list of ATT&CK technique IDs)
+   - `detection_signals` (list of key findings with severity/confidence)
+   - `intent_buckets` (from scan output `intent_summary`)
+   - `verdict` (from scan output)
+   - `regression_test` (test function name in corpus_captured_regressions.rs)
+   - `first_seen`, `analysis_date`
+   - `notes` (optional: notable false positives, historical bugs, caveats)
+
+5. **Write `analysis.md`** covering:
+   - **Threat Summary** — one-paragraph overview
+   - **File Structure** — object layout, stream counts, key object IDs
+   - **Detection Chain** — how signals connect from low-level findings to intent buckets
+   - **Evasion Techniques** — how the sample attempts to evade detection
+   - **Key Indicators** — actionable IOCs (hashes, domains, API names, patterns)
+   - **Regression Coverage** — list of test functions that guard this sample
+
+6. **Update `casestudies/README.md`**: add a row to the index table.
+
+### Keeping case studies current after detection improvements
+
+When a detector change materially affects a documented case study (new finding added, severity/confidence changed, false positive removed, chain improved):
+
+1. Re-run `sis scan <fixture> --deep --json` and compare to the previous capture.
+2. Update `metadata.json`: adjust `detection_signals`, `intent_buckets`, `verdict` if changed.
+3. Update `analysis.md`: add a dated note in the relevant section describing what changed and why.
+4. Commit both files together with the detector change in the same PR.
+
+### Updating after a new corpus batch run
+
+When a new corpus batch (e.g., `mwb-YYYY-MM-DD`) is analysed:
+
+1. Identify samples with novel attack patterns not represented in `casestudies/`.
+2. Follow the "Steps to create a case study entry" workflow above.
+3. For existing case studies where the new batch reveals drift (e.g., the threat family evolved, a new evasion is present), add a "Drift observed" note in `analysis.md`.
+4. Update the active plan under `plans/` with baseline delta notes as required by the fixture baseline workflow.
+
 ## Commit & Pull Request Guidelines
 
 - Commit messages are short, imperative, and capitalized
